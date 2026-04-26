@@ -1,22 +1,46 @@
 """Application entrypoint, signal handling, and CLI dispatch.
 
-Currently exposes the read-only :func:`_probe` health check and an
-argparse-based :func:`cli_entrypoint`. The full bridge service (poll
-loop, command dispatcher, metrics server, signal handling) lands in
-Phase 6 under the ``run`` subcommand, which currently raises
-:class:`NotImplementedError` to keep the CLI surface visible.
+Two operating modes:
+
+* ``probe`` -- the read-only health check from Phase 2.
+* ``run`` -- the full bridge service (Phase 4 onwards): connects to
+  the broker, brings up an :class:`MQTTPublisher` and an
+  :class:`EZ1Client`, and starts an :class:`asyncio.TaskGroup` with
+  the poll loop and availability heartbeat.
+
+Phase 5 will add the command-handler task to the same TaskGroup;
+Phase 6 the metrics server. The TaskGroup skeleton in
+:func:`run_service` is the canonical orchestration point so those
+later phases only add ``tg.create_task(...)`` lines, not refactor.
+
+Signal handling routes ``SIGINT`` / ``SIGTERM`` to a single
+:class:`asyncio.Event` that every coroutine in the TaskGroup observes.
+On shutdown, ``availability=offline`` is published explicitly before
+the MQTT connection closes -- a graceful disconnect does NOT trigger
+the broker's LWT, so without this the availability badge in Home
+Assistant would briefly show stale ``online``.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json as json_lib
+import signal
 import sys
 from typing import Any, Final
 
+import structlog
+
 from ez1_bridge import __version__
 from ez1_bridge.adapters.ez1_http import EZ1Client
+from ez1_bridge.adapters.mqtt_publisher import MQTTPublisher
+from ez1_bridge.application.poll_service import availability_heartbeat, poll_loop
+from ez1_bridge.config import Settings
+from ez1_bridge.domain.normalizer import parse_device_info
+
+_log = structlog.get_logger(__name__)
 
 #: Tuple of (wire-name, EZ1Client method name) for the five read endpoints.
 #: ``probe`` is read-only by design — write endpoints are not listed here so
@@ -108,10 +132,103 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser(
         "run",
-        help="Run the bridge service (implemented in Phase 6).",
+        help="Run the bridge service (poll EZ1, publish to MQTT, heartbeat).",
     )
 
     return parser
+
+
+def _install_signal_handlers(stop_event: asyncio.Event) -> None:
+    """Wire SIGINT and SIGTERM to set ``stop_event`` exactly once each.
+
+    POSIX-only -- ``loop.add_signal_handler`` is not implemented on
+    Windows. The bridge ships in a Linux container so this is fine; the
+    function is a no-op on platforms where the call would raise (tests
+    can drive ``stop_event`` directly).
+    """
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(sig, stop_event.set)
+
+
+async def run_service(
+    settings: Settings,
+    *,
+    stop_event: asyncio.Event | None = None,
+) -> None:
+    """Run the bridge service until ``stop_event`` is set or SIGTERM arrives.
+
+    If ``stop_event`` is ``None``, signal handlers are installed and a
+    fresh event is created. Tests pass an event explicitly so the
+    function can be exercised without touching process-wide signals.
+
+    Phase 4 starts two tasks (poll loop + availability heartbeat).
+    Phase 5 adds the command handler; Phase 6 the metrics server. The
+    TaskGroup is the single orchestration point, and the surrounding
+    ``async with`` blocks ensure the EZ1 HTTP client and the MQTT
+    connection are torn down cleanly on any exit path.
+    """
+    own_stop_event = stop_event is None
+    stop_event = stop_event or asyncio.Event()
+    if own_stop_event:
+        _install_signal_handlers(stop_event)
+
+    _log.info(
+        "bridge_starting",
+        ez1=f"{settings.ez1_host}:{settings.ez1_port}",
+        mqtt=f"{settings.mqtt_host}:{settings.mqtt_port}",
+        poll_interval=settings.poll_interval,
+    )
+
+    async with EZ1Client(
+        host=settings.ez1_host,
+        port=settings.ez1_port,
+        timeout=settings.request_timeout,
+    ) as ez1:
+        # Resolve device_id up front -- the LWT topic baked into the MQTT
+        # CONNECT depends on it, and there is no clean way to update it
+        # later. If the inverter is offline at startup the bridge fails
+        # fast; container restart policies (Docker / systemd) handle it.
+        device_info = parse_device_info(await ez1.get_device_info())
+        _log.info(
+            "ez1_device_resolved",
+            device_id=device_info.device_id,
+            firmware=device_info.firmware_version,
+        )
+
+        async with MQTTPublisher(
+            host=settings.mqtt_host,
+            port=settings.mqtt_port,
+            username=(
+                settings.mqtt_user.get_secret_value() if settings.mqtt_user is not None else None
+            ),
+            password=settings.mqtt_password,
+            base_topic=settings.mqtt_base_topic,
+            device_id=device_info.device_id,
+        ) as publisher:
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(
+                        poll_loop(
+                            ez1=ez1,
+                            publisher=publisher,
+                            settings=settings,
+                            stop_event=stop_event,
+                        ),
+                        name="poll_loop",
+                    )
+                    tg.create_task(
+                        availability_heartbeat(
+                            publisher=publisher,
+                            stop_event=stop_event,
+                        ),
+                        name="availability_heartbeat",
+                    )
+            finally:
+                with contextlib.suppress(Exception):
+                    await publisher.publish_availability(online=False)
+                _log.info("bridge_stopped")
 
 
 def cli_entrypoint(argv: list[str] | None = None) -> int:
@@ -128,8 +245,9 @@ def cli_entrypoint(argv: list[str] | None = None) -> int:
             _probe(host=args.host, port=args.port, json_output=args.json_output),
         )
     if args.command == "run":
-        msg = "`run` is implemented in Phase 6."
-        raise NotImplementedError(msg)
+        settings = Settings()  # type: ignore[call-arg]  # loaded from env / .env
+        asyncio.run(run_service(settings))
+        return 0
 
     parser.print_help(sys.stderr)
     return 2

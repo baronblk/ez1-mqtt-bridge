@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+import os
+import signal
 from collections.abc import Callable
 from typing import Any
 
@@ -10,7 +14,8 @@ import httpx
 import pytest
 import respx
 
-from ez1_bridge.main import _probe, cli_entrypoint
+from ez1_bridge import main as main_module
+from ez1_bridge.main import _install_signal_handlers, _probe, cli_entrypoint
 
 _HOST = "192.168.3.24"
 _PORT = 8050
@@ -170,9 +175,27 @@ def test_cli_entrypoint_probe_requires_host() -> None:
         cli_entrypoint(["probe"])
 
 
-def test_cli_entrypoint_run_raises_until_phase_6() -> None:
-    with pytest.raises(NotImplementedError, match="Phase 6"):
-        cli_entrypoint(["run"])
+def test_cli_entrypoint_run_invokes_run_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``run`` builds Settings from env and calls run_service via asyncio.run."""
+    for k in list(os.environ):
+        if k.startswith("EZ1_BRIDGE_"):
+            monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("EZ1_BRIDGE_EZ1_HOST", "192.168.3.24")
+    monkeypatch.setenv("EZ1_BRIDGE_MQTT_HOST", "192.168.2.10")
+
+    captured: dict[str, object] = {}
+
+    async def fake_run_service(settings: object) -> None:
+        captured["settings"] = settings
+
+    monkeypatch.setattr(main_module, "run_service", fake_run_service)
+
+    exit_code = cli_entrypoint(["run"])
+
+    assert exit_code == 0
+    assert captured["settings"] is not None
 
 
 def test_cli_entrypoint_no_command_returns_two(
@@ -192,3 +215,25 @@ def test_cli_entrypoint_version_exits_zero(
         cli_entrypoint(["--version"])
     assert excinfo.value.code == 0
     assert "ez1-bridge" in capsys.readouterr().out
+
+
+# --- _install_signal_handlers ----------------------------------------
+
+
+async def test_install_signal_handlers_does_not_crash() -> None:
+    """Installing handlers on a Unix loop must succeed.
+
+    Signal-actually-fires-event behaviour is covered by the e2e
+    integration test in ``tests/integration/`` -- driving real signals
+    inside a pytest run interferes with pytest's own SIGINT handler,
+    so this unit test only verifies the wiring runs without raising
+    and cleans up after itself.
+    """
+    stop_event = asyncio.Event()
+    _install_signal_handlers(stop_event)
+
+    # Restore default handling so pytest's own SIGINT trapping survives.
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(NotImplementedError):
+            loop.remove_signal_handler(sig)
