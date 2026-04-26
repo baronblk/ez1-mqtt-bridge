@@ -1,0 +1,12 @@
+{
+  "data": {
+    "deviceId": "E17010000783",
+    "devVer": "EZ1 1.12.2t",
+    "ssid": "If you read this, you suck!",
+    "ipAddr": "192.168.3.24",
+    "minPower": "30",
+    "maxPower": "800"
+  },
+  "message": "SUCCESS",
+  "deviceId": "E17010000783"
+}
