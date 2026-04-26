@@ -17,6 +17,7 @@ import pytest
 
 from ez1_bridge.domain.models import (
     AlarmFlags,
+    DeviceInfo,
     EnergyReading,
     InverterState,
     PowerReading,
@@ -29,6 +30,7 @@ from ez1_bridge.domain.normalizer import (
     build_state,
     parse_alarms,
     parse_device_id,
+    parse_device_info,
     parse_max_power_w,
     parse_output_data,
     parse_status,
@@ -270,6 +272,77 @@ def test_parse_alarms_rejects_garbage_bit(
     envelope["data"]["og"] = "yes"
     with pytest.raises(ValueError, match="must be '0' or '1'"):
         parse_alarms(envelope)
+
+
+# --- parse_device_info -------------------------------------------------
+
+
+def test_parse_device_info_round_trips_real_payload(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    envelope = api_response("get_device_info")
+    info = parse_device_info(envelope)
+    assert isinstance(info, DeviceInfo)
+    assert info.device_id == "E17010000783"
+    assert info.firmware_version == "EZ1 1.12.2t"
+    assert info.ip_address == "192.168.3.24"
+    assert info.min_power_w == 30
+    assert info.max_power_w == 800
+
+
+def test_parse_device_info_coerces_string_power_bounds_explicitly(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    """Watt fields are strings on the wire; _to_int_watt must reject garbage."""
+    envelope = deepcopy(api_response("get_device_info"))
+    envelope["data"]["maxPower"] = "800W"
+    with pytest.raises(ValueError, match="watt value"):
+        parse_device_info(envelope)
+
+
+def test_parse_device_info_rejects_failed_envelope(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    envelope = deepcopy(api_response("get_device_info"))
+    envelope["message"] = "FAILED"
+    with pytest.raises(ValueError, match="non-success"):
+        parse_device_info(envelope)
+
+
+def test_parse_device_info_rejects_missing_required_field(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    envelope = deepcopy(api_response("get_device_info"))
+    del envelope["data"]["devVer"]
+    with pytest.raises(ValueError, match="missing key"):
+        parse_device_info(envelope)
+
+
+def test_parse_device_info_allows_empty_ssid(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    envelope = deepcopy(api_response("get_device_info"))
+    envelope["data"]["ssid"] = ""
+    info = parse_device_info(envelope)
+    assert info.ssid == ""
+
+
+def test_parse_device_info_rejects_non_string_field(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    envelope = deepcopy(api_response("get_device_info"))
+    envelope["data"]["devVer"] = 123
+    with pytest.raises(ValueError, match="devVer must be a string"):
+        parse_device_info(envelope)
+
+
+def test_parse_device_info_rejects_empty_required_field(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    envelope = deepcopy(api_response("get_device_info"))
+    envelope["data"]["deviceId"] = ""
+    with pytest.raises(ValueError, match="deviceId must be non-empty"):
+        parse_device_info(envelope)
 
 
 # --- build_state -------------------------------------------------------

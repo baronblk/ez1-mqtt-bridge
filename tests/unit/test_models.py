@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from ez1_bridge.domain.models import (
     AlarmFlags,
+    DeviceInfo,
     EnergyReading,
     InverterState,
     PowerReading,
@@ -178,3 +179,60 @@ def test_inverter_state_serialises_to_dict() -> None:
     assert dumped["status"] == "on"
     assert dumped["power"]["total_w"] == pytest.approx(204.0)
     assert dumped["alarms"]["any_active"] is False
+
+
+# --- DeviceInfo --------------------------------------------------------
+
+
+def _device_info(**overrides: object) -> DeviceInfo:
+    base: dict[str, object] = {
+        "device_id": "E17010000783",
+        "firmware_version": "EZ1 1.12.2t",
+        "ssid": "If you read this, you suck!",
+        "ip_address": "192.168.3.24",
+        "min_power_w": 30,
+        "max_power_w": 800,
+    }
+    base.update(overrides)
+    return DeviceInfo(**base)  # type: ignore[arg-type]
+
+
+def test_device_info_construction() -> None:
+    info = _device_info()
+    assert info.device_id == "E17010000783"
+    assert info.firmware_version == "EZ1 1.12.2t"
+    assert info.min_power_w == 30
+    assert info.max_power_w == 800
+
+
+def test_device_info_allows_empty_ssid() -> None:
+    info = _device_info(ssid="")
+    assert info.ssid == ""
+
+
+def test_device_info_rejects_empty_device_id() -> None:
+    with pytest.raises(ValidationError):
+        _device_info(device_id="")
+
+
+def test_device_info_rejects_empty_firmware() -> None:
+    with pytest.raises(ValidationError):
+        _device_info(firmware_version="")
+
+
+def test_device_info_rejects_negative_power_bounds() -> None:
+    with pytest.raises(ValidationError):
+        _device_info(min_power_w=-1)
+    with pytest.raises(ValidationError):
+        _device_info(max_power_w=-1)
+
+
+def test_device_info_is_frozen() -> None:
+    info = _device_info()
+    with pytest.raises(ValidationError):
+        info.max_power_w = 1000
+
+
+def test_device_info_extra_fields_forbidden() -> None:
+    with pytest.raises(ValidationError):
+        _device_info(unexpected="oops")

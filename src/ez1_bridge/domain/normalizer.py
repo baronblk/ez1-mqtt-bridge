@@ -27,6 +27,7 @@ from typing import Any, Final, Literal
 
 from ez1_bridge.domain.models import (
     AlarmFlags,
+    DeviceInfo,
     EnergyReading,
     InverterState,
     PowerReading,
@@ -151,6 +152,41 @@ def parse_output_data(
         msg = f"getOutputData: missing key {exc.args[0]!r}"
         raise ValueError(msg) from exc
     return power, today, lifetime
+
+
+def parse_device_info(envelope: Mapping[str, Any]) -> DeviceInfo:
+    """Convert a ``getDeviceInfo`` envelope into a typed :class:`DeviceInfo`.
+
+    The EZ1 returns ``minPower`` / ``maxPower`` as strings; both are
+    coerced explicitly via :func:`_to_int_watt` so a future firmware that
+    decides to emit ``"800W"`` fails fast rather than silently widens.
+    """
+    data = _expect_success(envelope, "getDeviceInfo")
+    try:
+        min_power = _to_int_watt(_require_str(data["minPower"], "minPower"))
+        max_power = _to_int_watt(_require_str(data["maxPower"], "maxPower"))
+        return DeviceInfo(
+            device_id=_require_str(data["deviceId"], "deviceId"),
+            firmware_version=_require_str(data["devVer"], "devVer"),
+            ssid=_require_str(data.get("ssid", ""), "ssid", allow_empty=True),
+            ip_address=_require_str(data["ipAddr"], "ipAddr"),
+            min_power_w=min_power,
+            max_power_w=max_power,
+        )
+    except KeyError as exc:
+        msg = f"getDeviceInfo: missing key {exc.args[0]!r}"
+        raise ValueError(msg) from exc
+
+
+def _require_str(value: object, field: str, *, allow_empty: bool = False) -> str:
+    """Type-narrow ``value`` to ``str`` and reject empties unless allowed."""
+    if not isinstance(value, str):
+        msg = f"getDeviceInfo: {field} must be a string, got {type(value).__name__}"
+        raise ValueError(msg)
+    if not allow_empty and not value:
+        msg = f"getDeviceInfo: {field} must be non-empty"
+        raise ValueError(msg)
+    return value
 
 
 def parse_alarms(envelope: Mapping[str, Any]) -> AlarmFlags:

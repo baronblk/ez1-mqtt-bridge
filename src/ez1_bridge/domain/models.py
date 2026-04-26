@@ -91,6 +91,35 @@ class AlarmFlags(BaseModel):
         return any((self.off_grid, self.output_fault, self.dc1_short, self.dc2_short))
 
 
+class DeviceInfo(BaseModel):
+    """Static device metadata returned by ``getDeviceInfo``.
+
+    Refreshed once at startup and every 24 h by the poll service so
+    Home Assistant discovery payloads stay accurate when firmware is
+    upgraded or the inverter migrates to a different SSID.
+    """
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    device_id: str = Field(min_length=1)
+    """Inverter serial / device identifier (e.g. ``"E17010000783"``)."""
+
+    firmware_version: str = Field(min_length=1)
+    """Firmware version string (e.g. ``"EZ1 1.12.2t"``)."""
+
+    ssid: str
+    """WLAN SSID the inverter is currently associated with (may be empty)."""
+
+    ip_address: str = Field(min_length=1)
+    """Inverter LAN IP address as reported by the device itself."""
+
+    min_power_w: int = Field(ge=0)
+    """Lower bound for ``setMaxPower`` calls (typically 30 W)."""
+
+    max_power_w: int = Field(ge=0)
+    """Upper bound for ``setMaxPower`` calls (typically 800 W)."""
+
+
 class InverterState(BaseModel):
     """Aggregated, normalized snapshot of the inverter's current state.
 
