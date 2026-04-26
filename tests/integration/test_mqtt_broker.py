@@ -56,6 +56,27 @@ def sample_state(device_id: str) -> InverterState:
     )
 
 
+_SUBSCRIPTION_WARMUP_SECONDS = 0.1
+
+
+async def _subscribe(client: aiomqtt.Client, topic: str, qos: int = 1) -> None:
+    """Subscribe to ``topic`` and yield to the event loop briefly.
+
+    Workaround for an intermittent flake on macOS Docker Desktop where a
+    publish that lands at the broker immediately after ``subscribe()``
+    returns is occasionally missed by the subscriber's async iterator.
+    The hypothesis is that the underlying paho client task needs a tick
+    to fully wire up the subscription state on the dispatch side, even
+    though SUBACK has been received. The brief sleep gives it that tick
+    without impacting test wall-clock noticeably.
+
+    See ``memory/flake_subscribe_publish_race_aiomqtt.md`` for the full
+    investigation trail.
+    """
+    await client.subscribe(topic, qos=qos)
+    await asyncio.sleep(_SUBSCRIPTION_WARMUP_SECONDS)
+
+
 async def _wait_for_message_on(
     client: aiomqtt.Client,
     expected_topic: str,
@@ -86,7 +107,7 @@ async def test_publish_availability_arrives_at_subscriber(
         port=mosquitto_broker.port,
         identifier=f"observer-{device_id}",
     ) as observer:
-        await observer.subscribe(availability_topic, qos=1)
+        await _subscribe(observer, availability_topic)
 
         async with MQTTPublisher(
             host=mosquitto_broker.host,
@@ -113,7 +134,7 @@ async def test_publish_state_arrives_at_subscriber(
         port=mosquitto_broker.port,
         identifier=f"observer-{device_id}",
     ) as observer:
-        await observer.subscribe(state_topic, qos=1)
+        await _subscribe(observer, state_topic)
 
         async with MQTTPublisher(
             host=mosquitto_broker.host,
@@ -160,7 +181,7 @@ async def test_state_retain_delivers_to_late_subscriber(
         port=mosquitto_broker.port,
         identifier=f"late-observer-{device_id}",
     ) as observer:
-        await observer.subscribe(state_topic, qos=1)
+        await _subscribe(observer, state_topic)
         msg = await _wait_for_message_on(observer, state_topic)
 
     body = json.loads(bytes(msg.payload).decode("utf-8"))
@@ -190,7 +211,7 @@ async def test_result_topic_is_not_retained(
         port=mosquitto_broker.port,
         identifier=f"late-observer-{device_id}",
     ) as observer:
-        await observer.subscribe(result_topic, qos=1)
+        await _subscribe(observer, result_topic)
 
         with pytest.raises(TimeoutError):
             await _wait_for_message_on(observer, result_topic, timeout=1.5)
@@ -216,7 +237,7 @@ async def test_flat_topics_retained(
         port=mosquitto_broker.port,
         identifier=f"flat-observer-{device_id}",
     ) as observer:
-        await observer.subscribe(flat_topic, qos=1)
+        await _subscribe(observer, flat_topic)
         msg = await _wait_for_message_on(observer, flat_topic)
 
     assert bytes(msg.payload).decode("utf-8") == "204.0"
@@ -240,7 +261,7 @@ async def test_publisher_authenticates_with_username_password(
         password=AUTH_PASSWORD,
         identifier=f"auth-observer-{device_id}",
     ) as observer:
-        await observer.subscribe(availability_topic, qos=1)
+        await _subscribe(observer, availability_topic)
 
         async with MQTTPublisher(
             host=mosquitto_auth_broker.host,
