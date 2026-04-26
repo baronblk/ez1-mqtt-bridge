@@ -36,6 +36,7 @@ import structlog
 from ez1_bridge import __version__
 from ez1_bridge.adapters.ez1_http import EZ1Client
 from ez1_bridge.adapters.mqtt_publisher import MQTTPublisher
+from ez1_bridge.application.command_handler import command_loop
 from ez1_bridge.application.poll_service import availability_heartbeat, poll_loop
 from ez1_bridge.config import Settings
 from ez1_bridge.domain.normalizer import parse_device_info
@@ -225,6 +226,24 @@ async def run_service(
                         ),
                         name="availability_heartbeat",
                     )
+                    # command_loop subscribes and blocks on async-for; it
+                    # cannot poll stop_event while waiting for a message,
+                    # so we cancel it explicitly once stop_event fires.
+                    # See command_handler.py "Cancellation" docstring.
+                    command_task = tg.create_task(
+                        command_loop(
+                            client=publisher.client,
+                            ez1=ez1,
+                            publisher=publisher,
+                            device_info=device_info,
+                            settings=settings,
+                            stop_event=stop_event,
+                        ),
+                        name="command_loop",
+                    )
+
+                    await stop_event.wait()
+                    command_task.cancel()
             finally:
                 with contextlib.suppress(Exception):
                     await publisher.publish_availability(online=False)
