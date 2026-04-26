@@ -67,5 +67,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Sync dev dependencies
         run: uv sync --frozen
-      - name: pytest
-        run: uv run pytest -ra
+      - name: pytest with coverage
+        # Overall ≥85% gate is enforced via [tool.coverage.report] fail_under
+        # in pyproject.toml; pytest-cov honours it automatically.
+        run: uv run pytest -ra --cov=src/ez1_bridge --cov-report=term-missing --cov-report=xml
+      - name: Enforce 100% coverage on domain layer
+        # Tighter than the global gate — the domain layer is pure logic with
+        # no I/O, so anything less than full line + branch coverage is a
+        # missed test, not an environmental quirk.
+        run: uv run coverage report --include="src/ez1_bridge/domain/*" --fail-under=100
