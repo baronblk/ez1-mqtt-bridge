@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     )
 
     # --- Prometheus -------------------------------------------------------
+    metrics_bind: Annotated[str, Field(min_length=1)] = "0.0.0.0"  # noqa: S104
+    """TCP bind address for the /metrics server. Defaults to 0.0.0.0 because the
+    bridge is intended to run inside a Docker network where the Prometheus
+    scraper reaches it from outside the container; binding to 127.0.0.1 would
+    make the endpoint unreachable. The container runs in an isolated network
+    and is not for public exposure."""
+
     metrics_port: PositivePort = 9100
 
     # --- Logging ----------------------------------------------------------
