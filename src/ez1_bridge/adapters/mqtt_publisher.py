@@ -204,6 +204,24 @@ class MQTTPublisher:
                 retain=topics.RETAIN["flat"],
             )
 
+    async def publish(
+        self,
+        topic: str,
+        payload: bytes | str | int | float,
+        *,
+        retain: bool,
+        qos: int = _DEFAULT_QOS,
+    ) -> None:
+        """Publish an arbitrary message with explicit retain semantics.
+
+        Used by callers that build their own topic / payload (e.g. the
+        discovery-publishing path in :mod:`ez1_bridge.application.poll_service`)
+        rather than going through the typed convenience methods. Retain
+        is required as a keyword argument so it is never forgotten.
+        """
+        client = self._ensure_client()
+        await client.publish(topic, payload=payload, qos=qos, retain=retain)
+
     async def publish_result(self, command_name: str, payload: Mapping[str, Any]) -> None:
         """Publish a command-result event (``retain=False``).
 
