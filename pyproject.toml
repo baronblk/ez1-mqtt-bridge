@@ -101,6 +101,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101",     # assert is fine in tests
+    "S105",     # hardcoded password strings are fine in test fixtures
+    "S106",     # hardcoded password kwargs are fine in test fixtures
     "PLR2004",  # magic values are fine in tests
     "ARG001",   # unused fixture args are fine
 ]
@@ -145,9 +147,13 @@ markers = [
 [tool.coverage.run]
 source = ["src/ez1_bridge"]
 branch = true
-parallel = true
 
 [tool.coverage.report]
+# Overall gate per the project NFR-5: ≥85% lines for the whole package.
+# A separate CI step enforces 100% on src/ez1_bridge/domain — that gate is
+# tighter than this default, so it is configured per-invocation rather
+# than globally to keep this default usable for ad-hoc local runs.
+fail_under = 85
 exclude_lines = [
     "pragma: no cover",
     "raise NotImplementedError",
