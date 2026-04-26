@@ -33,6 +33,7 @@ import pytest
 try:
     from docker.errors import DockerException
     from testcontainers.core.container import DockerContainer
+    from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 except ImportError as exc:  # pragma: no cover - missing dev dep
     pytest.skip(f"testcontainers not installed: {exc}", allow_module_level=True)
 
@@ -120,10 +121,16 @@ def _start_mosquitto(
         path.write_text(content, encoding="utf-8")
         path.chmod(0o644)
 
+    # Two-stage readiness: wait for Mosquitto to log "running" (means
+    # the listener is up *and* the auth backend has loaded the password
+    # file), then verify TCP. TCP-only races on cold container starts
+    # because the listen socket binds slightly before Mosquitto is
+    # ready to ACK MQTT CONNECT packets.
     container = (
         DockerContainer(_MOSQUITTO_IMAGE)
         .with_exposed_ports(1883)
         .with_volume_mapping(str(config_dir), "/mosquitto/config", "ro")
+        .waiting_for(LogMessageWaitStrategy("mosquitto version 2.0.20 running"))
     )
     container.start()
     host = container.get_container_host_ip()
