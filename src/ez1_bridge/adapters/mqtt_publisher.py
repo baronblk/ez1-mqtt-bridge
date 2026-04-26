@@ -122,6 +122,17 @@ class MQTTPublisher:
         """MQTT client_id used during CONNECT."""
         return self._identifier
 
+    @property
+    def client(self) -> aiomqtt.Client:
+        """The underlying ``aiomqtt.Client`` (for code paths that need to
+        subscribe and consume messages, e.g. the command handler).
+
+        Raises :class:`RuntimeError` if accessed outside the async context
+        manager. The publisher remains the owner of the client lifecycle;
+        callers must not close it.
+        """
+        return self._ensure_client()
+
     def _build_client(self) -> aiomqtt.Client:
         """Create the underlying ``aiomqtt.Client`` with LWT preset.
 

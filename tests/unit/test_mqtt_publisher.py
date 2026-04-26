@@ -165,6 +165,21 @@ async def test_publish_outside_context_raises() -> None:
         await pub.publish_availability(online=True)
 
 
+async def test_client_property_outside_context_raises() -> None:
+    pub = MQTTPublisher("broker.local", device_id="E1")
+    with pytest.raises(RuntimeError, match="async context manager"):
+        _ = pub.client
+
+
+async def test_client_property_returns_underlying_aiomqtt_client() -> None:
+    mock_client = _mock_client()
+    pub = MQTTPublisher("broker.local", device_id="E1")
+
+    with patch.object(pub, "_build_client", return_value=mock_client):
+        async with pub:
+            assert pub.client is mock_client
+
+
 # --- publish_availability ----------------------------------------------
 
 

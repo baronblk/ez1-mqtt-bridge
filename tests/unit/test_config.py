@@ -53,6 +53,17 @@ def test_defaults_with_only_required_fields_set(isolated_env: pytest.MonkeyPatch
     assert settings.metrics_port == 9100
     assert settings.log_level == "INFO"
     assert settings.log_format == "auto"
+    assert settings.setmaxpower_verify is True
+
+
+def test_setmaxpower_verify_can_be_disabled(isolated_env: pytest.MonkeyPatch) -> None:
+    settings = _make(
+        isolated_env,
+        ez1_host="192.168.3.24",
+        mqtt_host="192.168.2.10",
+        setmaxpower_verify="false",
+    )
+    assert settings.setmaxpower_verify is False
 
 
 def test_required_fields_must_be_set(isolated_env: pytest.MonkeyPatch) -> None:
