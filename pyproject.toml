@@ -112,6 +112,7 @@ ignore = [
     "S105",     # hardcoded password strings are fine in test fixtures
     "S106",     # hardcoded password kwargs are fine in test fixtures
     "PLR2004",  # magic values are fine in tests
+    "PLR0915",  # large e2e tests legitimately accumulate many statements
     "ARG001",   # unused fixture args are fine
 ]
 
