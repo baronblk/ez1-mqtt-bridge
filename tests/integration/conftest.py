@@ -104,11 +104,21 @@ def _start_mosquitto(
 
     ``extra_files`` maps relative filenames inside ``/mosquitto/config`` to
     their text content (e.g. a password file).
+
+    The temp dir and its files are explicitly chmod'd to ``0755``/``0644``
+    so the unprivileged ``mosquitto`` user (UID 1883) inside the container
+    can read them. macOS Docker Desktop is forgiving about host-side
+    permissions, but Linux Docker is not — without this, the auth broker
+    silently fails to load the password file and rejects every CONNECT.
     """
     config_dir = Path(tempfile.mkdtemp(prefix="ez1-mosquitto-"))
+    config_dir.chmod(0o755)
     (config_dir / "mosquitto.conf").write_text(config_text, encoding="utf-8")
+    (config_dir / "mosquitto.conf").chmod(0o644)
     for name, content in (extra_files or {}).items():
-        (config_dir / name).write_text(content, encoding="utf-8")
+        path = config_dir / name
+        path.write_text(content, encoding="utf-8")
+        path.chmod(0o644)
 
     container = (
         DockerContainer(_MOSQUITTO_IMAGE)
