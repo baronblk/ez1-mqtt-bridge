@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     poll_interval: Annotated[int, Field(ge=1, le=3600)] = 20
     request_timeout: Annotated[int, Field(ge=1, le=60)] = 5
 
+    # --- Commands ---------------------------------------------------------
+    setmaxpower_verify: bool = True
+    """Re-read getMaxPower after a setMaxPower write to confirm the device
+    accepted the value. Set to False for fire-and-forget on latency-sensitive
+    automations -- a verify mismatch is then silent."""
+
     # --- MQTT broker ------------------------------------------------------
     mqtt_host: Annotated[str, Field(min_length=1)]
     mqtt_port: Port = 1883
