@@ -36,9 +36,19 @@ jobs:
         with:
           languages: python
           # Use the curated default query suite; we have not seen any
-          # noisy false positives that would justify a custom config
-          # yet. Re-evaluate when the codebase doubles in size.
+          # noisy false positives in production code that would justify
+          # a custom config yet. Re-evaluate when the codebase doubles
+          # in size.
           queries: security-and-quality
+          # CodeQL targets production code paths. Test fixtures are
+          # noisy under security-and-quality: testcontainer credential
+          # files are flagged as clear-text-storage (the password is a
+          # throwaway), assert-only statements as ineffectual,
+          # mock-bind locals as unused. Test code is filtered through
+          # ruff + mypy --strict + code review instead.
+          config: |
+            paths-ignore:
+              - tests/**
       - name: Run CodeQL analysis
         uses: github/codeql-action/analyze@v3
         with:
