@@ -71,6 +71,9 @@ coverage.xml
 .env
 .env.local
 .env.*.local
+# .env.example is the documented template — keep it tracked even when a
+# user's global ~/.gitignore_global ignores .env.* broadly.
+!.env.example
 
 # --- Logs ---
 *.log

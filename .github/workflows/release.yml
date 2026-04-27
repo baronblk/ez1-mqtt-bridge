@@ -1,0 +1,122 @@
+name: Release
+
+# Triggered by:
+#   * a tag push matching v*  -> full release: build, push to GHCR,
+#     generate SBOM, create GitHub Release with notes + SBOM attached.
+#   * workflow_dispatch with dry_run=true (default) -> build only;
+#     skip the push, the SBOM, and the release-creation steps so the
+#     workflow can be exercised against develop without producing
+#     side effects.
+#
+# Why push:tags and not release:published:
+#   The release: trigger requires the GitHub Release to exist *before*
+#   the workflow runs, which forces a two-step manual process (create
+#   empty release -> wait for assets -> attach manually). Tag-driven
+#   release lets a single 'git tag vX.Y.Z && git push origin vX.Y.Z'
+#   produce a complete release atomically.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Skip image push, SBOM, and release creation (default: true)"
+        type: boolean
+        default: true
+
+# Concurrency: never run two release builds for the same ref in
+# parallel. They would race on the GHCR tag and on the Release object.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # create the GitHub Release + upload assets
+  packages: write   # push to ghcr.io/baronblk/ez1-mqtt-bridge
+  id-token: write   # SLSA provenance future-proofing
+
+jobs:
+  release:
+    name: Build, push, release
+    runs-on: ubuntu-latest
+    env:
+      # Single source of truth for "should we actually publish?".
+      # Tag-push always publishes; manual run respects the dry_run input.
+      PUBLISH: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # QEMU enables emulated arm64 builds on the amd64 GitHub runner.
+      # Slow (~3-5x native) but acceptable for a release-time workflow
+      # that runs once per tag, not on every PR.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Compute the tag set: vX.Y.Z, X.Y.Z, X.Y, plus :latest on tag pushes.
+      - name: Resolve image tags and OCI labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Login to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build (and push) multi-arch image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate SPDX SBOM via syft
+        if: env.PUBLISH == 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Create GitHub Release with auto-generated notes + SBOM
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            sbom.spdx.json
+          body: |
+            Multi-arch image: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`
+            (linux/amd64, linux/arm64)
+
+            Pull with:
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ```
+
+            SBOM in SPDX-JSON format is attached as `sbom.spdx.json`.

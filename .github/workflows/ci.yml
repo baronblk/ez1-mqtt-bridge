@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "feature/**"]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to keep the queue lean.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync dev dependencies
+        run: uv sync --frozen
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+  type-check:
+    name: Type check (mypy --strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync dev dependencies
+        run: uv sync --frozen
+      - name: mypy
+        run: uv run mypy src tests
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: ${{ matrix.python-version }}
+      - name: Sync dev dependencies
+        run: uv sync --frozen
+      - name: pytest with coverage
+        # Overall ≥85% gate is enforced via [tool.coverage.report] fail_under
+        # in pyproject.toml; pytest-cov honours it automatically.
+        run: uv run pytest -ra --cov=src/ez1_bridge --cov-report=term-missing --cov-report=xml
+      - name: Enforce 100% coverage on domain layer
+        # Tighter than the global gate — the domain layer is pure logic with
+        # no I/O, so anything less than full line + branch coverage is a
+        # missed test, not an environmental quirk.
+        run: uv run coverage report --include="src/ez1_bridge/domain/*" --fail-under=100
+
+  docker-build:
+    name: Docker build smoke (linux/amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ez1-mqtt-bridge:ci
+          # Single-arch (amd64) for CI feedback speed; Phase-10's release
+          # workflow handles multi-arch via QEMU on the version tags.
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test --version
+        # Verifies the image actually starts: distroless / slim images
+        # often crash here when a Python module is missing from the venv
+        # copy or a path env var is wrong.
+        run: |
+          OUT="$(docker run --rm ez1-mqtt-bridge:ci --version)"
+          echo "image reports: $OUT"
+          echo "$OUT" | grep -E '^ez1-bridge [0-9]+\.[0-9]+\.[0-9]+'
+      - name: Smoke test probe --help (read-only path reachable)
+        run: docker run --rm ez1-mqtt-bridge:ci probe --help
+      - name: Verify image size against NFR-2 (<= 80 MB compressed)
+        run: |
+          BYTES=$(docker save ez1-mqtt-bridge:ci | gzip -1 | wc -c)
+          MB=$((BYTES / 1024 / 1024))
+          echo "compressed image size: ${MB} MB"
+          if [ "$MB" -gt 80 ]; then
+            echo "::error::compressed image size ${MB} MB exceeds NFR-2 ceiling of 80 MB"
+            exit 1
+          fi
