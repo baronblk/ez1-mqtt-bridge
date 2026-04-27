@@ -1,6 +1,7 @@
 """Periodic poll loop and availability heartbeat coroutines.
 
-Exposes the two coroutines that the main TaskGroup spawns in Phase 4:
+Exposes the two coroutines that the main TaskGroup spawns alongside
+the command handler and ``/metrics`` server:
 
 * :func:`poll_loop` — every ``settings.poll_interval`` seconds, hits the
   four EZ1 read endpoints in parallel, builds an :class:`InverterState`,
@@ -20,10 +21,6 @@ completion and then waits ``min(interval, until-stop)``, exiting
 promptly when the event is set. Errors inside an iteration are logged
 and swallowed so a transient failure (Nacht-offline, broker hiccup)
 does not bring the whole TaskGroup down.
-
-Phase 5 will add ``command_loop`` and Phase 6 will add ``metrics_server``;
-each is a sibling task in the same TaskGroup, sharing the same
-``stop_event``.
 """
 
 from __future__ import annotations

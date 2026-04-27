@@ -2,16 +2,14 @@
 
 Two operating modes:
 
-* ``probe`` -- the read-only health check from Phase 2.
-* ``run`` -- the full bridge service (Phase 4 onwards): connects to
-  the broker, brings up an :class:`MQTTPublisher` and an
-  :class:`EZ1Client`, and starts an :class:`asyncio.TaskGroup` with
-  the poll loop and availability heartbeat.
-
-Phase 5 will add the command-handler task to the same TaskGroup;
-Phase 6 the metrics server. The TaskGroup skeleton in
-:func:`run_service` is the canonical orchestration point so those
-later phases only add ``tg.create_task(...)`` lines, not refactor.
+* ``probe`` -- a read-only health check that exercises every EZ1
+  endpoint once and reports the result. Mirrors the Docker
+  ``HEALTHCHECK`` in spirit but talks to the inverter directly.
+* ``run`` -- the full bridge service. Connects to the broker, brings
+  up an :class:`MQTTPublisher` and an :class:`EZ1Client`, and starts
+  an :class:`asyncio.TaskGroup` with four sibling coroutines: the
+  poll loop, the availability heartbeat, the command handler, and
+  the ``/metrics`` HTTP server.
 
 Signal handling routes ``SIGINT`` / ``SIGTERM`` to a single
 :class:`asyncio.Event` that every coroutine in the TaskGroup observes.
@@ -62,7 +60,7 @@ async def _probe(*, host: str, port: int, json_output: bool) -> int:
 
     Returns ``0`` if every endpoint responds with ``message == "SUCCESS"``,
     ``1`` otherwise. Designed for use as a CI smoke test against real
-    hardware (Phase 7) and as a quick local diagnostic.
+    hardware and as a quick local diagnostic.
 
     Never issues a write call. Adding a write endpoint to this routine
     would require a new fixture name and changes to the CLI surface --
@@ -166,11 +164,11 @@ async def run_service(
     fresh event is created. Tests pass an event explicitly so the
     function can be exercised without touching process-wide signals.
 
-    Phase 4 starts two tasks (poll loop + availability heartbeat).
-    Phase 5 adds the command handler; Phase 6 the metrics server. The
-    TaskGroup is the single orchestration point, and the surrounding
-    ``async with`` blocks ensure the EZ1 HTTP client and the MQTT
-    connection are torn down cleanly on any exit path.
+    The TaskGroup spawns four sibling coroutines (poll loop,
+    availability heartbeat, command handler, ``/metrics`` server) and
+    is the single orchestration point. The surrounding ``async with``
+    blocks ensure the EZ1 HTTP client and the MQTT connection are
+    torn down cleanly on any exit path.
     """
     own_stop_event = stop_event is None
     stop_event = stop_event or asyncio.Event()
