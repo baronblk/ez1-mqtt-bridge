@@ -36,10 +36,12 @@ import structlog
 from ez1_bridge import __version__
 from ez1_bridge.adapters.ez1_http import EZ1Client
 from ez1_bridge.adapters.mqtt_publisher import MQTTPublisher
+from ez1_bridge.adapters.prom_metrics import MetricsRegistry, metrics_server
 from ez1_bridge.application.command_handler import command_loop
 from ez1_bridge.application.poll_service import availability_heartbeat, poll_loop
 from ez1_bridge.config import Settings
 from ez1_bridge.domain.normalizer import parse_device_info
+from ez1_bridge.logging_setup import configure_logging
 
 _log = structlog.get_logger(__name__)
 
@@ -175,10 +177,14 @@ async def run_service(
     if own_stop_event:
         _install_signal_handlers(stop_event)
 
+    metrics = MetricsRegistry()
+    metrics.set_bridge_up(up=True)
+
     _log.info(
         "bridge_starting",
         ez1=f"{settings.ez1_host}:{settings.ez1_port}",
         mqtt=f"{settings.mqtt_host}:{settings.mqtt_port}",
+        metrics=f"{settings.metrics_bind}:{settings.metrics_port}",
         poll_interval=settings.poll_interval,
     )
 
@@ -186,6 +192,7 @@ async def run_service(
         host=settings.ez1_host,
         port=settings.ez1_port,
         timeout=settings.request_timeout,
+        metrics=metrics,
     ) as ez1:
         # Resolve device_id up front -- the LWT topic baked into the MQTT
         # CONNECT depends on it, and there is no clean way to update it
@@ -207,6 +214,8 @@ async def run_service(
             password=settings.mqtt_password,
             base_topic=settings.mqtt_base_topic,
             device_id=device_info.device_id,
+            on_reconnect=metrics.increment_mqtt_reconnect,
+            metrics=metrics,
         ) as publisher:
             try:
                 async with asyncio.TaskGroup() as tg:
@@ -216,6 +225,7 @@ async def run_service(
                             publisher=publisher,
                             settings=settings,
                             stop_event=stop_event,
+                            metrics=metrics,
                         ),
                         name="poll_loop",
                     )
@@ -225,6 +235,15 @@ async def run_service(
                             stop_event=stop_event,
                         ),
                         name="availability_heartbeat",
+                    )
+                    tg.create_task(
+                        metrics_server(
+                            metrics=metrics,
+                            host=settings.metrics_bind,
+                            port=settings.metrics_port,
+                            stop_event=stop_event,
+                        ),
+                        name="metrics_server",
                     )
                     # command_loop subscribes and blocks on async-for; it
                     # cannot poll stop_event while waiting for a message,
@@ -245,6 +264,7 @@ async def run_service(
                     await stop_event.wait()
                     command_task.cancel()
             finally:
+                metrics.set_bridge_up(up=False)
                 with contextlib.suppress(Exception):
                     await publisher.publish_availability(online=False)
                 _log.info("bridge_stopped")
@@ -265,6 +285,7 @@ def cli_entrypoint(argv: list[str] | None = None) -> int:
         )
     if args.command == "run":
         settings = Settings()  # type: ignore[call-arg]  # loaded from env / .env
+        configure_logging(level=settings.log_level, format_=settings.log_format)
         asyncio.run(run_service(settings))
         return 0
 
