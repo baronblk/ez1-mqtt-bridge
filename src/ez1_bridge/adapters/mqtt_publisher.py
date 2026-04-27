@@ -24,13 +24,16 @@ from __future__ import annotations
 import json as json_lib
 from collections.abc import Callable, Mapping
 from types import TracebackType
-from typing import Any, Final, Self
+from typing import TYPE_CHECKING, Any, Final, Self
 
 import aiomqtt
 from pydantic import SecretStr
 
 from ez1_bridge import topics
 from ez1_bridge.domain.models import InverterState
+
+if TYPE_CHECKING:
+    from ez1_bridge.adapters.prom_metrics import MetricsRegistry
 
 _DEFAULT_QOS: Final[int] = 1
 
@@ -86,6 +89,7 @@ class MQTTPublisher:
         device_id: str,
         identifier: str | None = None,
         on_reconnect: Callable[[], None] | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if not host:
             msg = "host must be a non-empty string"
@@ -105,6 +109,7 @@ class MQTTPublisher:
         self._device_id = device_id
         self._identifier = identifier or f"ez1-bridge-{device_id}"
         self._on_reconnect = on_reconnect
+        self._metrics = metrics
         self._client: aiomqtt.Client | None = None
 
     @property
@@ -177,6 +182,11 @@ class MQTTPublisher:
 
     # --- Publish methods -------------------------------------------------
 
+    def _record_publish(self, kind: str) -> None:
+        """Bump the ``ez1_mqtt_publish_total`` counter, if instrumented."""
+        if self._metrics is not None:
+            self._metrics.increment_mqtt_publish(kind)
+
     async def publish_availability(self, *, online: bool) -> None:
         """Publish ``"online"`` or ``"offline"`` to the availability topic.
 
@@ -192,6 +202,7 @@ class MQTTPublisher:
             qos=_DEFAULT_QOS,
             retain=topics.RETAIN["availability"],
         )
+        self._record_publish("availability")
 
     async def publish_state(self, state: InverterState) -> None:
         """Publish the structured JSON state plus all flat per-metric topics.
@@ -207,6 +218,7 @@ class MQTTPublisher:
             qos=_DEFAULT_QOS,
             retain=topics.RETAIN["state"],
         )
+        self._record_publish("state")
         for group, key, value in _flat_pairs(state):
             await client.publish(
                 topics.flat(self._base, self._device_id, group, key),
@@ -214,6 +226,7 @@ class MQTTPublisher:
                 qos=_DEFAULT_QOS,
                 retain=topics.RETAIN["flat"],
             )
+            self._record_publish("flat")
 
     async def publish(
         self,
@@ -232,13 +245,15 @@ class MQTTPublisher:
         """
         client = self._ensure_client()
         await client.publish(topic, payload=payload, qos=qos, retain=retain)
+        # Best-effort kind detection from the topic shape so the counter
+        # stays bucketed without a mandatory caller-side hint.
+        kind = "discovery" if "/sensor/" in topic or "/binary_sensor/" in topic else "other"
+        self._record_publish(kind)
 
     async def publish_result(self, command_name: str, payload: Mapping[str, Any]) -> None:
         """Publish a command-result event (``retain=False``).
 
         Used by the Phase-5 command handler to acknowledge writes.
-        Phase 3 ships the publisher-side machinery only; the handler
-        wires it up.
         """
         client = self._ensure_client()
         await client.publish(
@@ -247,6 +262,7 @@ class MQTTPublisher:
             qos=_DEFAULT_QOS,
             retain=topics.RETAIN["result"],
         )
+        self._record_publish("result")
 
     # --- Reconnect-counter hook -----------------------------------------
 

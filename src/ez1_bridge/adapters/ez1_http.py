@@ -31,11 +31,15 @@ transport concerns.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Mapping
 from types import TracebackType
-from typing import Any, Final, Self
+from typing import TYPE_CHECKING, Any, Final, Self
 
 import httpx
+
+if TYPE_CHECKING:
+    from ez1_bridge.adapters.prom_metrics import MetricsRegistry
 
 _DEFAULT_TIMEOUT: Final[float] = 5.0
 _DEFAULT_MAX_ATTEMPTS: Final[int] = 3
@@ -95,6 +99,7 @@ class EZ1Client:
         *,
         timeout: float = _DEFAULT_TIMEOUT,
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if not host:
             msg = "host must be a non-empty string"
@@ -105,6 +110,7 @@ class EZ1Client:
         self._base_url = f"http://{host}:{port}"
         self._timeout = timeout
         self._max_attempts = max_attempts
+        self._metrics = metrics
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -141,20 +147,34 @@ class EZ1Client:
         path: str,
         params: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
-        """GET ``path`` with retry policy and return the parsed JSON envelope."""
+        """GET ``path`` with retry policy and return the parsed JSON envelope.
+
+        Each attempt's wall-clock duration is observed on the metrics
+        registry's API histogram, and exceptions increment the API
+        error counter labelled by exception class. The endpoint label
+        is the path with the leading slash stripped so the cardinality
+        stays bounded to the seven EZ1 endpoints.
+        """
         client = self._ensure_client()
+        endpoint = path.lstrip("/")
         last_exc: BaseException | None = None
         for attempt in range(1, self._max_attempts + 1):
+            start = time.monotonic()
             try:
                 response = await client.get(path, params=params)
                 response.raise_for_status()
             except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as exc:
+                if self._metrics is not None:
+                    self._metrics.observe_api_request(endpoint, time.monotonic() - start)
+                    self._metrics.increment_api_error(endpoint, type(exc).__name__)
                 last_exc = exc
                 if attempt < self._max_attempts and _is_transient(exc):
                     await asyncio.sleep(_backoff_seconds(attempt))
                     continue
                 raise
             else:
+                if self._metrics is not None:
+                    self._metrics.observe_api_request(endpoint, time.monotonic() - start)
                 payload = response.json()
                 if not isinstance(payload, dict):
                     msg = (

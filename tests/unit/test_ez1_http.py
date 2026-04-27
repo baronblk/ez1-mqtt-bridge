@@ -24,6 +24,7 @@ from ez1_bridge.adapters.ez1_http import (
     _backoff_seconds,
     _is_transient,
 )
+from ez1_bridge.adapters.prom_metrics import MetricsRegistry
 
 # --- _is_transient classifier ------------------------------------------
 
@@ -287,3 +288,72 @@ async def test_non_object_json_response_rejected() -> None:
     async with EZ1Client(_HOST) as client:
         with pytest.raises(TypeError, match="JSON object"):
             await client.get_max_power()
+
+
+# --- Metrics instrumentation ----------------------------------------
+
+
+@respx.mock
+async def test_metrics_observes_duration_on_success(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    metrics = MetricsRegistry()
+    respx.get(f"{_BASE}/getOutputData").respond(json=api_response("get_output_data"))
+
+    async with EZ1Client(_HOST, metrics=metrics) as client:
+        await client.get_output_data()
+
+    text = metrics.generate().decode("utf-8")
+    assert 'ez1_api_request_duration_seconds_count{endpoint="getOutputData"} 1.0' in text
+
+
+@respx.mock
+async def test_metrics_increments_error_counter_on_connect_error() -> None:
+    metrics = MetricsRegistry()
+    respx.get(f"{_BASE}/getOutputData").mock(
+        side_effect=httpx.ConnectError("refused"),
+    )
+
+    async with EZ1Client(_HOST, metrics=metrics, max_attempts=1) as client:
+        with pytest.raises(httpx.ConnectError):
+            await client.get_output_data()
+
+    text = metrics.generate().decode("utf-8")
+    assert 'ez1_api_errors_total{endpoint="getOutputData",reason="ConnectError"} 1.0' in text
+
+
+@respx.mock
+async def test_metrics_records_error_per_failed_attempt(
+    api_response: Callable[[str], dict[str, Any]],
+    fast_backoff: None,
+) -> None:
+    """Each retried 5xx contributes a counter increment."""
+    metrics = MetricsRegistry()
+    route = respx.get(f"{_BASE}/getOutputData")
+    route.mock(
+        side_effect=[
+            httpx.Response(503),
+            httpx.Response(503),
+            httpx.Response(200, json=api_response("get_output_data")),
+        ],
+    )
+
+    async with EZ1Client(_HOST, metrics=metrics, max_attempts=3) as client:
+        await client.get_output_data()
+
+    text = metrics.generate().decode("utf-8")
+    # Two failed attempts logged as HTTPStatusError errors:
+    assert 'ez1_api_errors_total{endpoint="getOutputData",reason="HTTPStatusError"} 2.0' in text
+    # Three observations (two failed, one success) on the histogram count:
+    assert 'ez1_api_request_duration_seconds_count{endpoint="getOutputData"} 3.0' in text
+
+
+@respx.mock
+async def test_metrics_unset_does_not_break_normal_flow(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    """Backwards compatibility: existing callers without metrics still work."""
+    respx.get(f"{_BASE}/getOutputData").respond(json=api_response("get_output_data"))
+    async with EZ1Client(_HOST) as client:
+        envelope = await client.get_output_data()
+    assert envelope["message"] == "SUCCESS"
