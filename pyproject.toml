@@ -77,10 +77,10 @@ extend-exclude = ["docs/_reference"]
 
 [tool.ruff.lint.pylint]
 # Adapter constructors carry the wire-shape of an external service
-# (host, port, credentials, topic root, device id, identifier, callbacks);
-# 8 keeps that legitimate use case lint-clean without losing the warning
-# on genuinely god-class constructors.
-max-args = 8
+# (host, port, credentials, topic root, device id, identifier, callbacks,
+# metrics); 10 keeps that legitimate use case lint-clean without losing
+# the warning on genuinely god-class constructors.
+max-args = 10
 
 [tool.ruff.lint]
 select = [

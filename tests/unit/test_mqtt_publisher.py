@@ -21,6 +21,7 @@ from pydantic import SecretStr
 
 from ez1_bridge import topics
 from ez1_bridge.adapters.mqtt_publisher import MQTTPublisher
+from ez1_bridge.adapters.prom_metrics import MetricsRegistry
 from ez1_bridge.domain.models import (
     AlarmFlags,
     EnergyReading,
@@ -328,6 +329,99 @@ def test_reconnect_hook_invokes_callback() -> None:
 
 
 # --- Defensive uses of the topics module ------------------------------
+
+
+# --- Metrics instrumentation ------------------------------------------
+
+
+@pytest.fixture
+def sample_state_for_metrics() -> InverterState:
+    return InverterState(
+        ts=datetime(2026, 4, 26, 18, 0, tzinfo=UTC),
+        device_id="E17010000783",
+        power=PowerReading(ch1_w=139.0, ch2_w=65.0),
+        energy_today=EnergyReading(ch1_kwh=0.28731, ch2_kwh=0.42653),
+        energy_lifetime=EnergyReading(ch1_kwh=87.43068, ch2_kwh=111.24305),
+        max_power_w=800,
+        status="on",
+        alarms=AlarmFlags(off_grid=False, output_fault=False, dc1_short=False, dc2_short=False),
+    )
+
+
+async def test_metrics_counts_publish_availability() -> None:
+
+    mock_client = _mock_client()
+    metrics = MetricsRegistry()
+    pub = MQTTPublisher("broker.local", device_id="E1", metrics=metrics)
+
+    with patch.object(pub, "_build_client", return_value=mock_client):
+        async with pub:
+            await pub.publish_availability(online=True)
+            await pub.publish_availability(online=False)
+
+    text = metrics.generate().decode("utf-8")
+    assert 'ez1_mqtt_publish_total{kind="availability"} 2.0' in text
+
+
+async def test_metrics_counts_publish_state_and_flat_topics(
+    sample_state_for_metrics: InverterState,
+) -> None:
+
+    mock_client = _mock_client()
+    metrics = MetricsRegistry()
+    pub = MQTTPublisher("broker.local", device_id="E1", metrics=metrics)
+
+    with patch.object(pub, "_build_client", return_value=mock_client):
+        async with pub:
+            await pub.publish_state(sample_state_for_metrics)
+
+    text = metrics.generate().decode("utf-8")
+    assert 'ez1_mqtt_publish_total{kind="state"} 1.0' in text
+    assert 'ez1_mqtt_publish_total{kind="flat"} 16.0' in text
+
+
+async def test_metrics_counts_publish_result() -> None:
+
+    mock_client = _mock_client()
+    metrics = MetricsRegistry()
+    pub = MQTTPublisher("broker.local", device_id="E1", metrics=metrics)
+
+    with patch.object(pub, "_build_client", return_value=mock_client):
+        async with pub:
+            await pub.publish_result("max_power", {"ok": True})
+
+    text = metrics.generate().decode("utf-8")
+    assert 'ez1_mqtt_publish_total{kind="result"} 1.0' in text
+
+
+async def test_metrics_counts_generic_publish_as_discovery_or_other() -> None:
+
+    mock_client = _mock_client()
+    metrics = MetricsRegistry()
+    pub = MQTTPublisher("broker.local", device_id="E1", metrics=metrics)
+
+    with patch.object(pub, "_build_client", return_value=mock_client):
+        async with pub:
+            await pub.publish(
+                "homeassistant/sensor/E1/power_total/config",
+                "{}",
+                retain=True,
+            )
+            await pub.publish("ez1/E1/custom/thing", "x", retain=False)
+
+    text = metrics.generate().decode("utf-8")
+    assert 'ez1_mqtt_publish_total{kind="discovery"} 1.0' in text
+    assert 'ez1_mqtt_publish_total{kind="other"} 1.0' in text
+
+
+async def test_metrics_unset_does_not_break_publish() -> None:
+    """Backwards compatibility for callers that pre-date the metrics arg."""
+    mock_client = _mock_client()
+    pub = MQTTPublisher("broker.local", device_id="E1")  # no metrics
+
+    with patch.object(pub, "_build_client", return_value=mock_client):
+        async with pub:
+            await pub.publish_availability(online=True)
 
 
 def test_publisher_uses_topics_retain_map_directly() -> None:
