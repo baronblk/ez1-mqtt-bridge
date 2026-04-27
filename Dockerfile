@@ -98,8 +98,13 @@ USER nonroot
 # Importantly, this must NOT fail when the EZ1 inverter is offline at
 # night: the bridge stays healthy (bridge_up=1, /metrics responds) even
 # while availability=offline -- that is the intended split.
+#
+# The probe always targets 127.0.0.1 (the in-container loopback always
+# works regardless of how the metrics server is bound) but reads the
+# port from EZ1_BRIDGE_METRICS_PORT so an operator who relocates the
+# scrape port does not have to rebuild the image. Issue #18.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD ["python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9100/metrics', timeout=4).status == 200 else 1)"]
+    CMD ["python", "-c", "import os,urllib.request,sys;p=os.environ.get('EZ1_BRIDGE_METRICS_PORT','9100');sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/metrics', timeout=4).status == 200 else 1)"]
 
 EXPOSE 9100
 
