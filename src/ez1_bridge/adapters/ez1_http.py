@@ -58,17 +58,18 @@ def _is_transient(exc: BaseException) -> bool:
     Drives the retry decision in :meth:`EZ1Client._request`. Defined as a
     standalone function (not a method) so tests can exercise the policy
     without instantiating a client.
+
+    Implemented as an ``isinstance``-chain rather than ``match`` because
+    CodeQL's ``py/mixed-returns`` analyser does not treat ``case _`` as
+    flow-sensitive exhaustive even when it is — the chain below is
+    semantically identical and gets a clean bill of health. The principle
+    of dispatching on exception type is preserved.
     """
-    # Three explicit return paths, no guard fall-through. CodeQL's
-    # py/mixed-returns flagged the previous match-with-guard form
-    # because the guard's False arm fell through to ``case _``.
-    match exc:
-        case httpx.TimeoutException():
-            return True
-        case httpx.HTTPStatusError() as e:
-            return _HTTP_SERVER_ERROR_LO <= e.response.status_code < _HTTP_SERVER_ERROR_HI
-        case _:
-            return False
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return _HTTP_SERVER_ERROR_LO <= exc.response.status_code < _HTTP_SERVER_ERROR_HI
+    return False
 
 
 def _backoff_seconds(attempt: int) -> float:
