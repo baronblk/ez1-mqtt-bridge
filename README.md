@@ -48,6 +48,7 @@ auto-discovery and Prometheus metrics.
 | [`docs/mqtt-topics.md`](docs/mqtt-topics.md) | Every published / subscribed / discovery topic with payload schemas |
 | [`docs/home-assistant.md`](docs/home-assistant.md) | Integration guide with copy-paste automation examples |
 | [`docs/api-reference.md`](docs/api-reference.md) | EZ1 endpoint summary + firmware compatibility |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | Multi-VLAN setup, EZ1 hardware quirks, common failure-mode diagnoses |
 | [`docs/_reference/apsystems-ez1-local-api.md`](docs/_reference/apsystems-ez1-local-api.md) | Canonical local-API reference (verified payloads + edge cases) |
 
 ## Container deployment
