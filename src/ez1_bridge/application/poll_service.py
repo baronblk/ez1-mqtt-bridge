@@ -32,7 +32,7 @@ import asyncio
 import contextlib
 import json as json_lib
 from datetime import UTC, datetime
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import httpx
 import structlog
@@ -42,6 +42,9 @@ from ez1_bridge.adapters.mqtt_publisher import MQTTPublisher
 from ez1_bridge.application.ha_discovery import build_discovery_messages
 from ez1_bridge.config import Settings
 from ez1_bridge.domain.normalizer import build_state, parse_device_info
+
+if TYPE_CHECKING:
+    from ez1_bridge.adapters.prom_metrics import MetricsRegistry
 
 _log = structlog.get_logger(__name__)
 
@@ -103,6 +106,7 @@ async def poll_loop(
     settings: Settings,
     stop_event: asyncio.Event,
     discovery_refresh_seconds: float = _DISCOVERY_REFRESH_SECONDS,
+    metrics: MetricsRegistry | None = None,
 ) -> None:
     """Run the poll cycle until ``stop_event`` is set.
 
@@ -110,9 +114,10 @@ async def poll_loop(
 
     1. Fetches the four read endpoints in parallel via ``asyncio.gather``.
     2. Builds a typed :class:`InverterState` and publishes it.
-    3. Republishes HA discovery if this is the first successful poll
+    3. Mirrors the state onto the metrics registry's gauges (if provided).
+    4. Republishes HA discovery if this is the first successful poll
        or 24 h have elapsed since the last refresh.
-    4. Waits ``settings.poll_interval`` seconds (or exits immediately
+    5. Waits ``settings.poll_interval`` seconds (or exits immediately
        if ``stop_event`` is set during the wait).
     """
     last_discovery_at: datetime | None = None
@@ -134,6 +139,8 @@ async def poll_loop(
                 ts=now,
             )
             await publisher.publish_state(state)
+            if metrics is not None:
+                metrics.record_state(state)
 
             if (
                 last_discovery_at is None
