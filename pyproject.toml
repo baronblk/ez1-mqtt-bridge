@@ -115,6 +115,11 @@ ignore = [
     "PLR0915",  # large e2e tests legitimately accumulate many statements
     "ARG001",   # unused fixture args are fine
 ]
+"tools/**/*.py" = [
+    "T201",     # CLI scripts print to stderr by design
+    "PLR2004",  # HTTP status code thresholds (200/400/500) read clearer inline
+    "PLR0911",  # endpoint-classifier dispatch table is exhaustive on purpose
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
