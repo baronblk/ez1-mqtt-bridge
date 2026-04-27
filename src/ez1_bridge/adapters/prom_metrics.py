@@ -207,9 +207,14 @@ class MetricsRegistry:
     def increment_mqtt_publish(self, kind: str) -> None:
         """Count a single MQTT publish call by topic kind.
 
-        ``kind`` follows the canonical bucket vocabulary from
+        ``kind`` follows the canonical bucket vocabulary mirrored in
         :mod:`ez1_bridge.topics`: ``state``, ``flat``, ``availability``,
-        ``result``, ``discovery``.
+        ``result``, ``discovery``, plus the ``other`` sentinel emitted
+        by :meth:`MQTTPublisher.publish` when an arbitrary topic does
+        not match one of the typed shapes. The sentinel is a deliberate
+        bucket cap on label cardinality — without it, a future caller
+        of the generic publish helper could otherwise leak free-form
+        topic strings into the Prometheus index.
         """
         self.mqtt_publish.labels(kind=kind).inc()
 

@@ -149,6 +149,17 @@ def test_increment_mqtt_publish_by_kind() -> None:
     assert 'ez1_mqtt_publish_total{kind="flat"} 2.0' in text
 
 
+def test_increment_mqtt_publish_accepts_full_kind_vocabulary() -> None:
+    """Pin the documented `kind` vocabulary so future drift between
+    `MQTTPublisher.publish` and the registry docstring fails fast."""
+    metrics = MetricsRegistry()
+    for kind in ("state", "flat", "availability", "result", "discovery", "other"):
+        metrics.increment_mqtt_publish(kind)
+    text = metrics.generate().decode("utf-8")
+    for kind in ("state", "flat", "availability", "result", "discovery", "other"):
+        assert f'ez1_mqtt_publish_total{{kind="{kind}"}} 1.0' in text
+
+
 def test_increment_mqtt_reconnect_counter() -> None:
     metrics = MetricsRegistry()
     metrics.increment_mqtt_reconnect()
