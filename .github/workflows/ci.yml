@@ -76,3 +76,41 @@ jobs:
         # no I/O, so anything less than full line + branch coverage is a
         # missed test, not an environmental quirk.
         run: uv run coverage report --include="src/ez1_bridge/domain/*" --fail-under=100
+
+  docker-build:
+    name: Docker build smoke (linux/amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ez1-mqtt-bridge:ci
+          # Single-arch (amd64) for CI feedback speed; Phase-10's release
+          # workflow handles multi-arch via QEMU on the version tags.
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test --version
+        # Verifies the image actually starts: distroless / slim images
+        # often crash here when a Python module is missing from the venv
+        # copy or a path env var is wrong.
+        run: |
+          OUT="$(docker run --rm ez1-mqtt-bridge:ci --version)"
+          echo "image reports: $OUT"
+          echo "$OUT" | grep -E '^ez1-bridge [0-9]+\.[0-9]+\.[0-9]+'
+      - name: Smoke test probe --help (read-only path reachable)
+        run: docker run --rm ez1-mqtt-bridge:ci probe --help
+      - name: Verify image size against NFR-2 (<= 80 MB compressed)
+        run: |
+          BYTES=$(docker save ez1-mqtt-bridge:ci | gzip -1 | wc -c)
+          MB=$((BYTES / 1024 / 1024))
+          echo "compressed image size: ${MB} MB"
+          if [ "$MB" -gt 80 ]; then
+            echo "::error::compressed image size ${MB} MB exceeds NFR-2 ceiling of 80 MB"
+            exit 1
+          fi
