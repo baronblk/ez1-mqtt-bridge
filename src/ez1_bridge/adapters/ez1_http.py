@@ -59,13 +59,14 @@ def _is_transient(exc: BaseException) -> bool:
     standalone function (not a method) so tests can exercise the policy
     without instantiating a client.
     """
+    # Three explicit return paths, no guard fall-through. CodeQL's
+    # py/mixed-returns flagged the previous match-with-guard form
+    # because the guard's False arm fell through to ``case _``.
     match exc:
         case httpx.TimeoutException():
             return True
-        case httpx.HTTPStatusError() as e if (
-            _HTTP_SERVER_ERROR_LO <= e.response.status_code < _HTTP_SERVER_ERROR_HI
-        ):
-            return True
+        case httpx.HTTPStatusError() as e:
+            return _HTTP_SERVER_ERROR_LO <= e.response.status_code < _HTTP_SERVER_ERROR_HI
         case _:
             return False
 
