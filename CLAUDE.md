@@ -36,7 +36,7 @@ beats feature velocity.
 | Security | `bandit`, `pip-audit` |
 | Pre-commit | `pre-commit` + `commitizen` |
 | CI | GitHub Actions |
-| Container | Multi-stage Dockerfile, distroless runtime, non-root |
+| Container | Multi-stage Dockerfile, `python:3.12-slim` runtime, non-root (UID 65532) |
 
 ---
 
@@ -70,9 +70,13 @@ uv run mypy src tests
 uv run pytest
 ```
 
-Coverage threshold scales with phase progress:
-- Phase 0: no threshold (smoke tests only).
-- Phase 1+: ≥ 85 % lines overall, 100 % on `domain/` and `application/`.
+Coverage gates as enforced in CI:
+- 100 % lines + branches on `domain/` (the inverted-on/off mapping
+  and watt-string parsers are too easy to silently regress).
+- ~98 % overall — the hard gate is the domain layer; adapter and
+  application coverage is high but not pinned at 100 % because
+  several integration paths are exercised end-to-end via
+  `testcontainers` rather than unit-mocked.
 
 Pre-commit runs the first three plus the conventional-commit message check
 on every `git commit`.
