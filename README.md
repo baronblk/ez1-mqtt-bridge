@@ -23,8 +23,8 @@ HTTP API to MQTT, with native Home Assistant auto-discovery and Prometheus metri
 - Exposes Prometheus metrics on `:9100/metrics`.
 - Survives nightly inverter offline windows, MQTT disconnects, and bridge restarts
   via LWT and exponential backoff.
-- Multi-arch Docker image (`linux/amd64`, `linux/arm64`), distroless runtime,
-  non-root user.
+- Multi-arch Docker image (`linux/amd64`, `linux/arm64`), `python:3.12-slim`
+  runtime as a non-root user. Image size approx. 50 MB compressed.
 
 ## Tech stack
 
@@ -38,6 +38,36 @@ Python 3.12+ · `httpx` · `aiomqtt` · `pydantic` v2 · `structlog` ·
   empirical edge cases.
 - `docs/architecture.md`, `docs/mqtt-topics.md`, `docs/home-assistant.md` —
   populated in Phase 9.
+
+## Container deployment
+
+```bash
+# Copy and edit the env template
+cp .env.example .env
+$EDITOR .env
+
+# Bring up the bridge (uses ghcr.io/baronblk/ez1-mqtt-bridge once Phase 10 publishes)
+docker compose up -d
+
+# Tail logs
+docker compose logs -f bridge
+
+# Shut down cleanly (LWT triggers + explicit availability=offline publish)
+docker compose down
+```
+
+The `/metrics` endpoint binds to `0.0.0.0:9100` inside the container and is
+forwarded to `127.0.0.1:9100` on the host -- intended for a Prometheus scraper
+on the same host or co-located in the `ez1-bridge-net` Docker network.
+Healthcheck pulls `/metrics` once every 30 s and stays green even when the
+inverter is night-offline.
+
+To build the image locally instead of pulling:
+
+```bash
+docker build -t ez1-mqtt-bridge:local .
+docker run --rm ez1-mqtt-bridge:local --version
+```
 
 ## Development
 
