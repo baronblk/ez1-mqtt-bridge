@@ -28,6 +28,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Final, Self
 
 import aiomqtt
+import structlog
 from pydantic import SecretStr
 
 from ez1_bridge import topics
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from ez1_bridge.adapters.prom_metrics import MetricsRegistry
 
 _DEFAULT_QOS: Final[int] = 1
+_log = structlog.get_logger(__name__)
 
 
 def _flat_pairs(state: InverterState) -> list[tuple[str, str, str]]:
@@ -204,6 +206,7 @@ class MQTTPublisher:
             retain=topics.RETAIN["availability"],
         )
         self._record_publish("availability")
+        _log.info("availability_published", online=online, device_id=self._device_id)
 
     async def publish_state(self, state: InverterState) -> None:
         """Publish the structured JSON state plus all flat per-metric topics.
@@ -228,6 +231,14 @@ class MQTTPublisher:
                 retain=topics.RETAIN["flat"],
             )
             self._record_publish("flat")
+        _log.info(
+            "state_published",
+            device_id=state.device_id,
+            power_w=state.power.total_w,
+            energy_today_kwh=state.energy_today.total_kwh,
+            status=state.status,
+            any_alarm=state.alarms.any_active,
+        )
 
     async def publish(
         self,
@@ -264,6 +275,13 @@ class MQTTPublisher:
             retain=topics.RETAIN["result"],
         )
         self._record_publish("result")
+        _log.info(
+            "command_result_published",
+            command=command_name,
+            ok=payload.get("ok"),
+            error=payload.get("error"),
+            device_id=self._device_id,
+        )
 
     # --- Reconnect-counter hook -----------------------------------------
 
