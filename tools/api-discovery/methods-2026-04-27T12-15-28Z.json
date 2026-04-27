@@ -1,0 +1,211 @@
+{
+  "metadata": {
+    "started_at_utc": "2026-04-27T12:15:28.877418+00:00",
+    "finished_at_utc": "2026-04-27T12:15:54.608358+00:00",
+    "host": "192.168.3.24",
+    "port": 8050,
+    "timeout_seconds": 5.0,
+    "rate_limit_seconds": 1.5,
+    "total_probes": 8
+  },
+  "results": [
+    {
+      "path": "/getDeviceInfo",
+      "method": "OPTIONS",
+      "request_headers": {},
+      "rationale": "list allowed methods on a known read endpoint",
+      "outcome": "client_error",
+      "status_code": 405,
+      "response_headers": {
+        "content-type": "text/html",
+        "content-length": "45"
+      },
+      "body_capture": "Specified method is invalid for this resource",
+      "body_is_json": false,
+      "json_payload": null,
+      "roundtrip_seconds": 0.257,
+      "error_class": null,
+      "error_detail": null,
+      "notes": []
+    },
+    {
+      "path": "/setMaxPower",
+      "method": "OPTIONS",
+      "request_headers": {},
+      "rationale": "list allowed methods on a known set endpoint",
+      "outcome": "unreachable",
+      "status_code": null,
+      "response_headers": {},
+      "body_capture": null,
+      "body_is_json": false,
+      "json_payload": null,
+      "roundtrip_seconds": 5.003,
+      "error_class": "ConnectTimeout",
+      "error_detail": "timed out",
+      "notes": []
+    },
+    {
+      "path": "/",
+      "method": "OPTIONS",
+      "request_headers": {},
+      "rationale": "list allowed methods on the root path",
+      "outcome": "unreachable",
+      "status_code": null,
+      "response_headers": {},
+      "body_capture": null,
+      "body_is_json": false,
+      "json_payload": null,
+      "roundtrip_seconds": 5.003,
+      "error_class": "ConnectTimeout",
+      "error_detail": "timed out",
+      "notes": []
+    },
+    {
+      "path": "/getDeviceInfo",
+      "method": "HEAD",
+      "request_headers": {},
+      "rationale": "headers-only view of the canonical envelope",
+      "outcome": "client_error",
+      "status_code": 405,
+      "response_headers": {
+        "content-type": "text/html",
+        "content-length": "45"
+      },
+      "body_capture": "",
+      "body_is_json": false,
+      "json_payload": null,
+      "roundtrip_seconds": 3.512,
+      "error_class": null,
+      "error_detail": null,
+      "notes": []
+    },
+    {
+      "path": "/getDeviceInfo",
+      "method": "GET",
+      "request_headers": {
+        "Accept": "application/xml"
+      },
+      "rationale": "alternative response format via content negotiation",
+      "outcome": "ok",
+      "status_code": 200,
+      "response_headers": {
+        "content-type": "application/json",
+        "content-length": "199"
+      },
+      "body_capture": "{\"data\":{\"deviceId\":\"E17010000783\",\"devVer\":\"EZ1 1.12.2t\",\"ssid\":\"If you read this, you suck!\",\"ipAddr\":\"192.168.3.24\",\"minPower\":\"30\",\"maxPower\":\"800\"},\"message\":\"SUCCESS\",\"deviceId\":\"E17010000783\"}",
+      "body_is_json": true,
+      "json_payload": {
+        "data": {
+          "deviceId": "E17010000783",
+          "devVer": "EZ1 1.12.2t",
+          "ssid": "If you read this, you suck!",
+          "ipAddr": "192.168.3.24",
+          "minPower": "30",
+          "maxPower": "800"
+        },
+        "message": "SUCCESS",
+        "deviceId": "E17010000783"
+      },
+      "roundtrip_seconds": 0.116,
+      "error_class": null,
+      "error_detail": null,
+      "notes": []
+    },
+    {
+      "path": "/getDeviceInfo",
+      "method": "GET",
+      "request_headers": {
+        "Accept": "text/plain"
+      },
+      "rationale": "plaintext response variant",
+      "outcome": "ok",
+      "status_code": 200,
+      "response_headers": {
+        "content-type": "application/json",
+        "content-length": "199"
+      },
+      "body_capture": "{\"data\":{\"deviceId\":\"E17010000783\",\"devVer\":\"EZ1 1.12.2t\",\"ssid\":\"If you read this, you suck!\",\"ipAddr\":\"192.168.3.24\",\"minPower\":\"30\",\"maxPower\":\"800\"},\"message\":\"SUCCESS\",\"deviceId\":\"E17010000783\"}",
+      "body_is_json": true,
+      "json_payload": {
+        "data": {
+          "deviceId": "E17010000783",
+          "devVer": "EZ1 1.12.2t",
+          "ssid": "If you read this, you suck!",
+          "ipAddr": "192.168.3.24",
+          "minPower": "30",
+          "maxPower": "800"
+        },
+        "message": "SUCCESS",
+        "deviceId": "E17010000783"
+      },
+      "roundtrip_seconds": 0.127,
+      "error_class": null,
+      "error_detail": null,
+      "notes": []
+    },
+    {
+      "path": "/getDeviceInfo",
+      "method": "GET",
+      "request_headers": {
+        "X-Debug": "1"
+      },
+      "rationale": "X-Debug widening (long shot, common embedded-firmware pattern)",
+      "outcome": "ok",
+      "status_code": 200,
+      "response_headers": {
+        "content-type": "application/json",
+        "content-length": "199"
+      },
+      "body_capture": "{\"data\":{\"deviceId\":\"E17010000783\",\"devVer\":\"EZ1 1.12.2t\",\"ssid\":\"If you read this, you suck!\",\"ipAddr\":\"192.168.3.24\",\"minPower\":\"30\",\"maxPower\":\"800\"},\"message\":\"SUCCESS\",\"deviceId\":\"E17010000783\"}",
+      "body_is_json": true,
+      "json_payload": {
+        "data": {
+          "deviceId": "E17010000783",
+          "devVer": "EZ1 1.12.2t",
+          "ssid": "If you read this, you suck!",
+          "ipAddr": "192.168.3.24",
+          "minPower": "30",
+          "maxPower": "800"
+        },
+        "message": "SUCCESS",
+        "deviceId": "E17010000783"
+      },
+      "roundtrip_seconds": 0.138,
+      "error_class": null,
+      "error_detail": null,
+      "notes": []
+    },
+    {
+      "path": "/getOutputData",
+      "method": "GET",
+      "request_headers": {
+        "X-Debug": "1"
+      },
+      "rationale": "same on the live-data endpoint",
+      "outcome": "ok",
+      "status_code": 200,
+      "response_headers": {
+        "content-type": "application/json",
+        "content-length": "129"
+      },
+      "body_capture": "{\"data\":{\"p1\":36,\"e1\":0.10678,\"te1\":87.63657,\"p2\":57,\"e2\":0.15244,\"te2\":111.45346},\"message\":\"SUCCESS\",\"deviceId\":\"E17010000783\"}",
+      "body_is_json": true,
+      "json_payload": {
+        "data": {
+          "p1": 36,
+          "e1": 0.10678,
+          "te1": 87.63657,
+          "p2": 57,
+          "e2": 0.15244,
+          "te2": 111.45346
+        },
+        "message": "SUCCESS",
+        "deviceId": "E17010000783"
+      },
+      "roundtrip_seconds": 0.99,
+      "error_class": null,
+      "error_detail": null,
+      "notes": []
+    }
+  ]
+}
