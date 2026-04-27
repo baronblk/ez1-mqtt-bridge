@@ -22,5 +22,5 @@ def test_version_pinned_to_release() -> None:
     # Pinning the runtime constant keeps `python -m ez1_bridge --version`
     # honest after a release tag, and would have caught the v0.1.0 cut
     # being prepared while metadata still claimed 0.0.0.
-    assert ez1_bridge.__version__ == "0.1.1"
+    assert ez1_bridge.__version__ == "0.1.2"
     assert metadata.version("ez1-mqtt-bridge") == ez1_bridge.__version__
