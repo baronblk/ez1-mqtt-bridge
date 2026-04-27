@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-27
+
+Bundled quality-fix release. Three follow-ups from the v0.1.1
+hardware smoke against E17010000783 (firmware EZ1 1.12.2t).
+
+### Added
+
+- Success-level logging for the three MQTT publish entry points.
+  `MQTTPublisher.publish_state` now emits a `state_published`
+  event with `device_id`, `power_w` (total), `energy_today_kwh`
+  (total), `status`, and `any_alarm`. `publish_availability`
+  emits `availability_published` with `online: bool`.
+  `publish_result` emits `command_result_published` with
+  `command`, `ok`, and `error`. Pinned by three new caplog tests
+  in `tests/unit/test_mqtt_publisher.py`.
+  Closes [#19].
+- New [`docs/troubleshooting.md`](docs/troubleshooting.md)
+  consolidating the field-verified failure modes:
+  multi-VLAN deployment requiring `network_mode: host`,
+  the four EZ1 hardware quirks (BLE app kills HTTP, parallel-
+  request rejection, WLAN volatility, `e1`/`e2` reset on cold
+  start), and the two diagnostic surfaces fixed in this release
+  (silent success path, hard-coded healthcheck port).
+  Closes [#17].
+
+### Fixed
+
+- Docker `HEALTHCHECK` now reads `EZ1_BRIDGE_METRICS_PORT` from
+  the container's environment instead of hard-coding port 9100.
+  Operators relocating the metrics port no longer get a false
+  `unhealthy` status. The probe stays on `127.0.0.1` because
+  in-container loopback is universal.
+  Closes [#18].
+
+### Why this matters
+
+The Phase 10 hardware smoke that surfaced v0.1.1's parallel-poll
+bug also surfaced an observability hole that masked the bug for
+~30 minutes: the bridge was working correctly but emitted no
+success-level log lines, so the diagnosis chased phantom causes
+(idle-connection timeout, TaskGroup hang, `_wait_or_stop` bug,
+keep-alive issue) before noticing the broker had retained state
+with live values. v0.1.2 closes that hole and writes down the
+EZ1 hardware quirks discovered along the way so the next operator
+saves the same time.
+
+[#17]: https://github.com/baronblk/ez1-mqtt-bridge/issues/17
+[#18]: https://github.com/baronblk/ez1-mqtt-bridge/issues/18
+[#19]: https://github.com/baronblk/ez1-mqtt-bridge/issues/19
+
 ## [0.1.1] - 2026-04-27
 
 ### Fixed
@@ -148,6 +198,7 @@ Initial release of the ez1-mqtt-bridge service.
 - README with feature list, badges, configuration table, and CLI
   reference.
 
-[Unreleased]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/baronblk/ez1-mqtt-bridge/releases/tag/v0.1.0
