@@ -4,7 +4,7 @@ Exposes the two coroutines that the main TaskGroup spawns alongside
 the command handler and ``/metrics`` server:
 
 * :func:`poll_loop` — every ``settings.poll_interval`` seconds, hits the
-  four EZ1 read endpoints in parallel, builds an :class:`InverterState`,
+  four EZ1 read endpoints **sequentially**, builds an :class:`InverterState`,
   and publishes it. Also handles HA discovery: on the first successful
   cycle and every 24 h thereafter it fetches ``getDeviceInfo`` and
   publishes the 15 discovery messages built by :func:`build_discovery_messages`.
@@ -109,7 +109,7 @@ async def poll_loop(
 
     Each iteration:
 
-    1. Fetches the four read endpoints in parallel via ``asyncio.gather``.
+    1. Fetches the four read endpoints **sequentially** (see note below).
     2. Builds a typed :class:`InverterState` and publishes it.
     3. Mirrors the state onto the metrics registry's gauges (if provided).
     4. Republishes HA discovery if this is the first successful poll
@@ -121,12 +121,18 @@ async def poll_loop(
 
     while not stop_event.is_set():
         try:
-            output_data, max_power, alarm, on_off = await asyncio.gather(
-                ez1.get_output_data(),
-                ez1.get_max_power(),
-                ez1.get_alarm(),
-                ez1.get_on_off(),
-            )
+            # EZ1-M's local HTTP server cannot handle parallel TCP
+            # connections: parallel SYN packets are dropped, leaving
+            # every concurrent request stuck in connect-timeout.
+            # Verified against firmware EZ1 1.12.2t (issue #14).
+            # Worst-case sequential latency ~2.8 s at 0.7 s per request,
+            # well within the default 20 s poll interval. Do NOT replace
+            # this with `asyncio.gather` — it will look fine in unit
+            # tests and silently break against real hardware.
+            output_data = await ez1.get_output_data()
+            max_power = await ez1.get_max_power()
+            alarm = await ez1.get_alarm()
+            on_off = await ez1.get_on_off()
             now = datetime.now(tz=UTC)
             state = build_state(
                 output_data=output_data,
