@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import aiomqtt
 import pytest
+import structlog
 from pydantic import SecretStr
 
 from ez1_bridge import topics
@@ -303,6 +304,86 @@ async def test_publish_result_does_not_retain() -> None:
     assert awaited_call.kwargs["retain"] is False
     body = json.loads(awaited_call.kwargs["payload"])
     assert body == {"ok": True, "value": 600}
+
+
+# --- Success-level logging --------------------------------------------
+#
+# These tests pin the success-path log events introduced in v0.1.2.
+# Without a success log, a healthy bridge looks indistinguishable from
+# a hung one in journalctl: the v0.1.1 hardware smoke spent ~30 minutes
+# diagnosing a phantom hang before noticing the bridge was working all
+# along (issue #19).
+
+
+async def test_publish_state_emits_state_published_log(
+    sample_state: InverterState,
+) -> None:
+    mock_client = _mock_client()
+    pub = MQTTPublisher("broker.local", device_id="E17010000783")
+
+    with (
+        patch.object(pub, "_build_client", return_value=mock_client),
+        structlog.testing.capture_logs() as captured,
+    ):
+        async with pub:
+            await pub.publish_state(sample_state)
+
+    state_logs = [e for e in captured if e.get("event") == "state_published"]
+    assert len(state_logs) == 1
+    log = state_logs[0]
+    assert log["device_id"] == "E17010000783"
+    assert log["power_w"] == 204.0
+    assert log["energy_today_kwh"] == pytest.approx(0.71384)
+    assert log["status"] == "on"
+    assert log["any_alarm"] is False
+    assert log["log_level"] == "info"
+
+
+async def test_publish_availability_emits_availability_published_log() -> None:
+    mock_client = _mock_client()
+    pub = MQTTPublisher("broker.local", device_id="E1")
+
+    with (
+        patch.object(pub, "_build_client", return_value=mock_client),
+        structlog.testing.capture_logs() as captured,
+    ):
+        async with pub:
+            await pub.publish_availability(online=True)
+            await pub.publish_availability(online=False)
+
+    avail_logs = [e for e in captured if e.get("event") == "availability_published"]
+    assert len(avail_logs) == 2
+    assert avail_logs[0]["online"] is True
+    assert avail_logs[1]["online"] is False
+    assert all(e["device_id"] == "E1" for e in avail_logs)
+    assert all(e["log_level"] == "info" for e in avail_logs)
+
+
+async def test_publish_result_emits_command_result_published_log() -> None:
+    mock_client = _mock_client()
+    pub = MQTTPublisher("broker.local", device_id="E1")
+
+    with (
+        patch.object(pub, "_build_client", return_value=mock_client),
+        structlog.testing.capture_logs() as captured,
+    ):
+        async with pub:
+            await pub.publish_result("max_power", {"ok": True, "value": 600})
+            await pub.publish_result(
+                "on_off",
+                {"ok": False, "error": "invalid_payload", "detail": "..."},
+            )
+
+    result_logs = [e for e in captured if e.get("event") == "command_result_published"]
+    assert len(result_logs) == 2
+
+    success, failure = result_logs
+    assert success["command"] == "max_power"
+    assert success["ok"] is True
+    assert success["error"] is None  # absent → defaulted to None by .get()
+    assert failure["command"] == "on_off"
+    assert failure["ok"] is False
+    assert failure["error"] == "invalid_payload"
 
 
 # --- Reconnect hook ---------------------------------------------------
