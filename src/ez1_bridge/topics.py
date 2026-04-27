@@ -1,8 +1,8 @@
 """Centralized MQTT topic builders for the bridge.
 
 Every topic string in the codebase flows through this module — there are no
-magic strings anywhere else. Phase 4 (HA discovery) and Phase 5 (command
-handler) import the same builders so a topic-schema change ripples from
+magic strings anywhere else. The HA-discovery publisher and the command
+handler import the same builders so a topic-schema change ripples from
 exactly one place.
 
 Retain semantics

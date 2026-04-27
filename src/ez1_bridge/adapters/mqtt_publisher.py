@@ -3,9 +3,10 @@
 Designed as a thin, retain-aware wrapper around :class:`aiomqtt.Client`.
 The bridge owns one publisher instance for its entire lifetime and
 re-uses the underlying TCP connection — broker reconnect orchestration
-lives one layer up (Phase 6) rather than in the publisher itself, so the
-publisher can stay focused on "construct the right MQTT messages" and
-the application can decide what to do when the network drops.
+lives one layer up in :mod:`ez1_bridge.main` rather than in the publisher
+itself, so the publisher can stay focused on "construct the right MQTT
+messages" and the application can decide what to do when the network
+drops.
 
 LWT is set in the client *constructor*, not in any publish call; if the
 process dies ungracefully, the broker fires the configured
@@ -13,10 +14,10 @@ process dies ungracefully, the broker fires the configured
 the publisher after a catastrophic failure re-issues the LWT, since
 ``Will`` is bound to the underlying client object.
 
-The ``on_reconnect`` callback is wired here as a hook only; Phase 6
-will call :meth:`MQTTPublisher.trigger_reconnect_hook` from its
-reconnect loop to bump the ``ez1_mqtt_reconnects_total`` Prometheus
-counter. Until then, the hook is just a no-op default.
+The ``on_reconnect`` callback is wired here as a hook; the application's
+reconnect-orchestration loop calls :meth:`MQTTPublisher.trigger_reconnect_hook`
+on each successful re-establishment so ``ez1_mqtt_reconnects_total``
+advances. The publisher itself does not own the reconnect loop.
 """
 
 from __future__ import annotations
@@ -253,7 +254,7 @@ class MQTTPublisher:
     async def publish_result(self, command_name: str, payload: Mapping[str, Any]) -> None:
         """Publish a command-result event (``retain=False``).
 
-        Used by the Phase-5 command handler to acknowledge writes.
+        Used by the command handler to acknowledge writes.
         """
         client = self._ensure_client()
         await client.publish(
@@ -269,10 +270,10 @@ class MQTTPublisher:
     def trigger_reconnect_hook(self) -> None:
         """Invoke the ``on_reconnect`` callback if one was wired.
 
-        Phase 6's reconnect-orchestration loop calls this each time it
-        successfully re-establishes the broker connection so the
-        ``ez1_mqtt_reconnects_total`` Prometheus counter advances. The
-        publisher itself does not own the reconnect loop — that
+        The application's reconnect-orchestration loop calls this on
+        each successful re-establishment of the broker connection so
+        the ``ez1_mqtt_reconnects_total`` Prometheus counter advances.
+        The publisher itself does not own the reconnect loop — that
         responsibility lives in :mod:`ez1_bridge.main`.
         """
         if self._on_reconnect is not None:
