@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-27
+
+### Fixed
+
+- **Poll cycle now serialises the four EZ1 read endpoints instead of
+  fanning them out via `asyncio.gather`.** The EZ1-M's local HTTP
+  server cannot handle parallel TCP connections — concurrent SYN
+  packets are dropped at the device, leaving every request in
+  connect-timeout. The bridge handled this correctly as a transient
+  transport error (no crash, `availability=offline` flipped, retry
+  next cycle), but no `state_published` event ever fired against
+  real hardware. Verified against firmware EZ1 1.12.2t. Worst-case
+  sequential latency ~2.8 s per cycle, well within the default 20 s
+  poll interval. Fixes [#14].
+- New regression test `test_poll_loop_serializes_ez1_endpoint_requests`
+  pins both the call order and the maximum in-flight count to 1; a
+  future return to `asyncio.gather` (or `asyncio.create_task`) trips
+  it deterministically.
+
+[#14]: https://github.com/baronblk/ez1-mqtt-bridge/issues/14
+
 ## [0.1.0] - 2026-04-27
 
 Initial release of the ez1-mqtt-bridge service.
@@ -127,5 +148,6 @@ Initial release of the ez1-mqtt-bridge service.
 - README with feature list, badges, configuration table, and CLI
   reference.
 
-[Unreleased]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/baronblk/ez1-mqtt-bridge/releases/tag/v0.1.0

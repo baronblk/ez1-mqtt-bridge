@@ -100,6 +100,75 @@ async def test_poll_loop_publishes_state_and_discovery_on_first_cycle(
     assert publisher.publish.await_count == 15  # 11 sensor + 4 binary_sensor
 
 
+async def test_poll_loop_serializes_ez1_endpoint_requests(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    """Pin the EZ1 endpoint call sequence to prevent regression to gather().
+
+    EZ1-M's local HTTP server cannot handle parallel TCP connections;
+    a switch to ``asyncio.gather`` would still pass mock-based tests
+    that ignore concurrency, then silently fail against real hardware
+    (issue #14). This test fails *both* on order changes and on any
+    overlap between calls.
+    """
+    stop_event = asyncio.Event()
+    ez1 = AsyncMock()
+
+    call_order: list[str] = []
+    in_flight = 0
+    max_concurrent = 0
+
+    def make_recorder(name: str, payload: dict[str, Any]) -> Callable[..., Any]:
+        async def _impl() -> dict[str, Any]:
+            nonlocal in_flight, max_concurrent
+            in_flight += 1
+            max_concurrent = max(max_concurrent, in_flight)
+            call_order.append(name)
+            # Yield to the event loop so a hypothetical `gather`
+            # implementation would observably overlap us with siblings.
+            await asyncio.sleep(0)
+            in_flight -= 1
+            return payload
+
+        return _impl
+
+    ez1.get_output_data.side_effect = make_recorder(
+        "get_output_data", api_response("get_output_data")
+    )
+    ez1.get_max_power.side_effect = make_recorder("get_max_power", api_response("get_max_power"))
+    ez1.get_alarm.side_effect = make_recorder("get_alarm", api_response("get_alarm"))
+    ez1.get_on_off.side_effect = make_recorder("get_on_off", api_response("get_on_off"))
+    ez1.get_device_info.return_value = api_response("get_device_info")
+
+    publisher = AsyncMock()
+
+    async def stop_after_state(_state: object) -> None:
+        stop_event.set()
+
+    publisher.publish_state.side_effect = stop_after_state
+
+    await asyncio.wait_for(
+        poll_loop(
+            ez1=ez1,
+            publisher=publisher,
+            settings=_make_settings(),
+            stop_event=stop_event,
+        ),
+        timeout=2.0,
+    )
+
+    assert call_order == [
+        "get_output_data",
+        "get_max_power",
+        "get_alarm",
+        "get_on_off",
+    ]
+    assert max_concurrent == 1, (
+        f"EZ1 endpoint calls overlapped (max_concurrent={max_concurrent}); "
+        "regression to asyncio.gather()?"
+    )
+
+
 async def test_poll_loop_does_not_republish_discovery_within_refresh_window(
     api_response: Callable[[str], dict[str, Any]],
 ) -> None:
