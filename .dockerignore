@@ -36,10 +36,13 @@ tests/
 .github/
 .pre-commit-config.yaml
 .editorconfig
-*.md
 CHANGELOG.md
-LICENSE
-README.md
 CLAUDE.md
 .env
 .env.*
+
+# README.md and LICENSE are intentionally NOT excluded:
+# pyproject.toml references them via readme= and license-files=, so
+# hatchling needs them in the builder stage to produce the project wheel.
+# They do not reach the runtime image because the runtime stage only
+# copies /app/.venv and /app/src from the builder.
