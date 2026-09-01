@@ -96,6 +96,7 @@ edit. The required minimum is `EZ1_BRIDGE_EZ1_HOST` and
 | `EZ1_BRIDGE_EZ1_PORT` | `8050` | Inverter HTTP port |
 | `EZ1_BRIDGE_POLL_INTERVAL` | `20` | Seconds between poll cycles |
 | `EZ1_BRIDGE_REQUEST_TIMEOUT` | `5` | Per-request HTTP timeout, seconds |
+| `EZ1_BRIDGE_STARTUP_RETRY_INTERVAL` | `30` | Seconds between startup retries while the inverter is unreachable (dark) |
 | `EZ1_BRIDGE_SETMAXPOWER_VERIFY` | `true` | Read-back verify after setMaxPower writes |
 | `EZ1_BRIDGE_MQTT_HOST` | (required) | MQTT broker IP or hostname |
 | `EZ1_BRIDGE_MQTT_PORT` | `1883` | MQTT broker port |
