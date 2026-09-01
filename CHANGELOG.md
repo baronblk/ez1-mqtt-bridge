@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-01
+
+Startup-resilience release. Field finding from the homelab deployment:
+the EZ1-M powers down its WLAN and local API whenever there is no DC
+input, so any container (re)start after sunset -- a host reboot, a
+Dockhand auto-update, a `docker compose up` -- hit the fail-fast
+`getDeviceInfo` call and crash-looped until sunrise (`RestartCount`
+in the hundreds, container permanently `unhealthy`, one restart per
+minute in the logs).
+
+### Changed
+
+- `run_service` no longer fails fast when the inverter is unreachable
+  at startup. `getDeviceInfo` is retried every
+  `EZ1_BRIDGE_STARTUP_RETRY_INTERVAL` seconds (default `30`, new
+  setting) until it succeeds or the process is asked to stop. Transport
+  errors and HTTP 5xx are logged (`ez1_unreachable_at_startup` /
+  `ez1_http_error_at_startup`) and retried; a malformed envelope still
+  raises, because that is a bug and not a dark inverter. This mirrors
+  the `mark_offline` behaviour the poll loop already had for
+  mid-run outages.
+- The `/metrics` server is started *before* the inverter is resolved,
+  in its own outer TaskGroup, so the Docker `HEALTHCHECK` passes while
+  the bridge waits. `ez1_bridge_up` is `0` during the wait and flips to
+  `1` once the MQTT session is up -- alert on that gauge, not on
+  container health, to see a dark inverter.
+- SIGTERM while waiting for the inverter ends the wait within one event
+  loop tick instead of after the current retry interval.
+
+
 ## [0.1.2] - 2026-04-27
 
 Bundled quality-fix release. Three follow-ups from the v0.1.1
@@ -198,7 +228,8 @@ Initial release of the ez1-mqtt-bridge service.
 - README with feature list, badges, configuration table, and CLI
   reference.
 
-[Unreleased]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/baronblk/ez1-mqtt-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/baronblk/ez1-mqtt-bridge/releases/tag/v0.1.0
