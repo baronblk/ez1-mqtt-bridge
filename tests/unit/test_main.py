@@ -15,7 +15,13 @@ import pytest
 import respx
 
 from ez1_bridge import main as main_module
-from ez1_bridge.main import _install_signal_handlers, _probe, cli_entrypoint
+from ez1_bridge.adapters.ez1_http import EZ1Client
+from ez1_bridge.main import (
+    _install_signal_handlers,
+    _probe,
+    _resolve_device_info,
+    cli_entrypoint,
+)
 
 _HOST = "192.168.3.24"
 _PORT = 8050
@@ -237,3 +243,91 @@ async def test_install_signal_handlers_does_not_crash() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         with contextlib.suppress(NotImplementedError):
             loop.remove_signal_handler(sig)
+
+
+# --- _resolve_device_info ---------------------------------------------
+
+
+@respx.mock
+async def test_resolve_device_info_returns_on_first_success(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    respx.get(f"{_BASE}/getDeviceInfo").respond(json=api_response("get_device_info"))
+
+    async with EZ1Client(host=_HOST, port=_PORT) as client:
+        info = await _resolve_device_info(
+            client,
+            retry_interval=0.01,
+            stop_event=asyncio.Event(),
+        )
+
+    assert info is not None
+    assert info.device_id == api_response("get_device_info")["data"]["deviceId"]
+
+
+@respx.mock
+async def test_resolve_device_info_retries_while_inverter_is_dark(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    """A powered-down EZ1 (connect refused) must be retried, not fatal.
+
+    Two ConnectErrors -- the nightly failure mode -- followed by success.
+    ConnectError is *not* transient for EZ1Client's own retry policy, so
+    each side_effect entry is exactly one ``_resolve_device_info`` attempt.
+    """
+    route = respx.get(f"{_BASE}/getDeviceInfo")
+    route.side_effect = [
+        httpx.ConnectError("connection refused"),
+        httpx.ConnectError("connection refused"),
+        httpx.Response(200, json=api_response("get_device_info")),
+    ]
+
+    async with EZ1Client(host=_HOST, port=_PORT) as client:
+        info = await _resolve_device_info(
+            client,
+            retry_interval=0.01,
+            stop_event=asyncio.Event(),
+        )
+
+    assert info is not None
+    assert route.call_count == 3
+
+
+@respx.mock
+async def test_resolve_device_info_returns_none_when_stopped_first() -> None:
+    """SIGTERM while waiting for the inverter must end the wait promptly."""
+    respx.get(f"{_BASE}/getDeviceInfo").mock(side_effect=httpx.ConnectError("refused"))
+    stop_event = asyncio.Event()
+
+    async def _stop_soon() -> None:
+        await asyncio.sleep(0.05)
+        stop_event.set()
+
+    async with EZ1Client(host=_HOST, port=_PORT) as client, asyncio.timeout(5):
+        stopper = asyncio.create_task(_stop_soon())
+        info = await _resolve_device_info(
+            client,
+            retry_interval=60,  # far longer than the test -- stop must cut it short
+            stop_event=stop_event,
+        )
+        await stopper
+
+    assert info is None
+
+
+@respx.mock
+async def test_resolve_device_info_propagates_malformed_envelope(
+    api_response: Callable[[str], dict[str, Any]],
+) -> None:
+    """A parse error is a bug, not a dark inverter -- it must surface."""
+    broken = api_response("get_device_info")
+    broken["data"] = {}
+    respx.get(f"{_BASE}/getDeviceInfo").respond(json=broken)
+
+    async with EZ1Client(host=_HOST, port=_PORT) as client:
+        with pytest.raises(ValueError, match="getDeviceInfo"):
+            await _resolve_device_info(
+                client,
+                retry_interval=0.01,
+                stop_event=asyncio.Event(),
+            )

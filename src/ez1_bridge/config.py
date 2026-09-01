@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # --- Polling ----------------------------------------------------------
     poll_interval: Annotated[int, Field(ge=1, le=3600)] = 20
     request_timeout: Annotated[int, Field(ge=1, le=60)] = 5
+    startup_retry_interval: Annotated[int, Field(ge=1, le=3600)] = 30
+    """Seconds between attempts to reach the inverter at startup.
+
+    The EZ1-M powers down its WLAN and local API when there is no DC input
+    (every night), so a container (re)start in the dark would otherwise
+    crash-loop until sunrise. The bridge instead keeps ``/metrics`` up
+    (``ez1_bridge_up 0``) and retries ``getDeviceInfo`` at this interval."""
 
     # --- Commands ---------------------------------------------------------
     setmaxpower_verify: bool = True

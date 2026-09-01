@@ -26,7 +26,7 @@ network's gateway does not know about your managed-switch VLANs.
 ```yaml
 services:
   bridge:
-    image: ghcr.io/baronblk/ez1-mqtt-bridge:0.1.2
+    image: ghcr.io/baronblk/ez1-mqtt-bridge:0.1.3
     network_mode: host
     # When in host mode, remove these two keys — they have no effect
     # and Docker will reject the compose file:
@@ -160,6 +160,31 @@ the probe targeted a port nobody listened on.
 
 **Fix.** Upgrade to v0.1.2 or later — the HEALTHCHECK now reads
 `EZ1_BRIDGE_METRICS_PORT` from the environment. Issue #18.
+
+## Container restart-loops overnight (`Restarting (1)`, `unhealthy`)
+
+**Symptom.** After a host reboot, a Dockhand/Watchtower image update
+or a `docker compose up` in the evening, the bridge container restarts
+every ~60 s until the next morning. `docker inspect` shows a climbing
+`RestartCount`, the log repeats `bridge_starting` followed by
+`httpx.ConnectError: All connection attempts failed`, and the
+healthcheck never turns green because `/metrics` is never reached.
+
+**Root cause.** The EZ1-M switches its WLAN module and local HTTP API
+off as soon as the panels stop delivering DC power (see quirk 3
+above). Up to and including v0.1.2 the bridge resolved the device_id
+with a single fail-fast `getDeviceInfo` at startup, so a start in the
+dark crashed immediately and the restart policy retried forever.
+
+**Fix.** Upgrade to v0.1.3 or later. Startup now retries
+`getDeviceInfo` every `EZ1_BRIDGE_STARTUP_RETRY_INTERVAL` seconds
+(default 30) and brings `/metrics` up first, so the container is
+`healthy` while it waits and `ez1_bridge_up` stays `0` until the
+inverter answers. The log line to look for is
+`ez1_unreachable_at_startup` with `hint="inverter is probably powered
+down (no DC input)"`. Alert on `ez1_bridge_up == 0` for longer than
+your expected nightly window if you want to catch a genuinely dead
+inverter.
 
 ## See also
 
